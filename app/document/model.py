@@ -68,9 +68,14 @@ class ParagraphBlock(Block):
 
 @dataclass
 class ListBlock(Block):
-    """Bulleted or numbered list; each item is a list of inline spans."""
+    """Bulleted or numbered list; each item is a list of inline spans.
+
+    ``start`` is the first number of a numbered list ("4." stays "4.", it
+    must never silently renumber to "1.").
+    """
 
     items: list[list[InlineSpan]] = field(default_factory=list)
+    start: int = 1
 
     def item_text(self, index: int) -> str:
         """Plain text of one list item."""

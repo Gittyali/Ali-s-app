@@ -98,6 +98,9 @@ def _insert_list(cursor: QTextCursor, block: ListBlock) -> None:
         else QTextListFormat.Style.ListDecimal
     )
     list_format.setIndent(1)
+    if block.block_type is BlockType.NUMBERED_LIST and block.start != 1:
+        # Keep the source document's numbering (e.g. a list starting at 4).
+        list_format.setStart(block.start)
 
     cursor.insertBlock(_block_format(block.alignment))
     text_list = cursor.insertList(list_format)

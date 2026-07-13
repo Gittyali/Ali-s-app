@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QProgressBar,
     QSplitter,
@@ -107,6 +108,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self._build_actions()
+        self._build_menus()
         self._build_toolbar()
         self._build_status_bar()
         self._connect_signals()
@@ -129,9 +131,11 @@ class MainWindow(QMainWindow):
         self._action_dictate.setCheckable(True)
         self._action_prev_page = QAction("Previous Page", self)
         self._action_next_page = QAction("Next Page", self)
-        self._action_export_docx = QAction("Export DOCX", self)
-        self._action_export_pdf = QAction("Export PDF", self)
+        self._action_export_docx = QAction("Export DOCX…", self)
+        self._action_export_pdf = QAction("Export PDF…", self)
         self._action_settings = QAction("Settings…", self)
+        self._action_exit = QAction("Exit", self)
+        self._action_about = QAction("About", self)
 
         self._action_new_project.triggered.connect(self._new_project)
         self._action_open_project.triggered.connect(self._open_project)
@@ -145,6 +149,53 @@ class MainWindow(QMainWindow):
         self._action_export_docx.triggered.connect(lambda: self._export("docx"))
         self._action_export_pdf.triggered.connect(lambda: self._export("pdf"))
         self._action_settings.triggered.connect(self._open_settings)
+        self._action_exit.triggered.connect(self.close)
+        self._action_about.triggered.connect(self._show_about)
+
+    def _build_menus(self) -> None:
+        """Menu bar: every action is always reachable here, regardless of
+        window width or toolbar overflow."""
+        menubar = self.menuBar()
+
+        file_menu = menubar.addMenu("&File")
+        file_menu.addAction(self._action_new_project)
+        file_menu.addAction(self._action_open_project)
+        file_menu.addAction(self._action_save_project)
+        file_menu.addSeparator()
+        file_menu.addAction(self._action_import)
+        file_menu.addSeparator()
+        file_menu.addAction(self._action_export_docx)
+        file_menu.addAction(self._action_export_pdf)
+        file_menu.addSeparator()
+        file_menu.addAction(self._action_exit)
+
+        read_menu = menubar.addMenu("&Reading")
+        read_menu.addAction(self._action_read_page)
+        read_menu.addAction(self._action_read_all)
+        read_menu.addSeparator()
+        read_menu.addAction(self._action_dictate)
+
+        navigate_menu = menubar.addMenu("&Navigate")
+        navigate_menu.addAction(self._action_prev_page)
+        navigate_menu.addAction(self._action_next_page)
+
+        tools_menu = menubar.addMenu("&Tools")
+        tools_menu.addAction(self._action_settings)
+
+        help_menu = menubar.addMenu("&Help")
+        help_menu.addAction(self._action_about)
+
+    def _show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            f"About {__app_name__}",
+            f"<b>{__app_name__}</b> {__version__}<br><br>"
+            "Open-source AI document assistant: converts scanned pages and "
+            "screenshots into editable, Word-like documents using OCR, AI "
+            "vision and voice dictation.<br><br>"
+            "Configure OCR engines and AI providers under "
+            "<i>Tools &gt; Settings</i>.",
+        )
 
     def _build_toolbar(self) -> None:
         # Standard-theme icons keep the look native and professional without
@@ -204,8 +255,22 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._action_prev_page)
         toolbar.addAction(self._action_next_page)
         toolbar.addSeparator()
-        toolbar.addAction(self._action_export_docx)
-        toolbar.addAction(self._action_export_pdf)
+
+        # One compact Export dropdown instead of two wide buttons; the full
+        # actions also live in File menu, so nothing can ever disappear.
+        export_button = QToolButton(toolbar)
+        export_button.setText("Export")
+        export_button.setIcon(
+            style.standardIcon(style.StandardPixmap.SP_DialogSaveButton)
+        )
+        export_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        export_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        export_menu = QMenu(export_button)
+        export_menu.addAction(self._action_export_docx)
+        export_menu.addAction(self._action_export_pdf)
+        export_button.setMenu(export_menu)
+        toolbar.addWidget(export_button)
+
         toolbar.addSeparator()
         toolbar.addAction(self._action_settings)
         self.addToolBar(toolbar)

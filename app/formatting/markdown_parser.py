@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
 _BULLET_RE = re.compile(r"^\s*[-*+]\s+(.*)$")
-_NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+(.*)$")
+_NUMBERED_RE = re.compile(r"^\s*(\d+)[.)]\s+(.*)$")
 _TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
 _TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
 _FOOTNOTE_RE = re.compile(r"^\[\^?\d+\][:.]?\s+(.*)$")
@@ -114,15 +114,23 @@ def parse_markdown(markdown: str) -> StructuredDocument:
             blocks.append(ListBlock(block_type=BlockType.BULLET_LIST, items=items))
             continue
 
-        if _NUMBERED_RE.match(stripped):
+        first_numbered = _NUMBERED_RE.match(stripped)
+        if first_numbered:
+            # Preserve the document's own numbering: a list starting at
+            # "4." must not render as "1.".
+            start = int(first_numbered.group(1))
             items = []
             while index < total:
                 numbered = _NUMBERED_RE.match(lines[index].strip())
                 if not numbered:
                     break
-                items.append(parse_inline(numbered.group(1).strip()))
+                items.append(parse_inline(numbered.group(2).strip()))
                 index += 1
-            blocks.append(ListBlock(block_type=BlockType.NUMBERED_LIST, items=items))
+            blocks.append(
+                ListBlock(
+                    block_type=BlockType.NUMBERED_LIST, items=items, start=start
+                )
+            )
             continue
 
         if _TABLE_ROW_RE.match(stripped):

@@ -36,24 +36,41 @@ def _docx_alignment(block_format: QTextBlockFormat) -> int:
     return WD_ALIGN_PARAGRAPH.LEFT
 
 
+def _is_numbered_list(block: QTextBlock) -> bool:
+    text_list = block.textList()
+    if text_list is None:
+        return False
+    from PySide6.QtGui import QTextListFormat
+
+    return text_list.format().style() in (
+        QTextListFormat.Style.ListDecimal,
+        QTextListFormat.Style.ListLowerAlpha,
+        QTextListFormat.Style.ListUpperAlpha,
+        QTextListFormat.Style.ListLowerRoman,
+        QTextListFormat.Style.ListUpperRoman,
+    )
+
+
+def _numbered_item_label(block: QTextBlock) -> str:
+    """The literal number Qt renders for this list item (e.g. ``"4."``).
+
+    Written as text in the DOCX so the document's own numbering is
+    preserved exactly — Word's automatic list numbering would restart at 1.
+    """
+    text_list = block.textList()
+    start = text_list.format().start()
+    if start < 1:
+        start = 1
+    return f"{start + text_list.itemNumber(block)}."
+
+
 def _paragraph_style(block: QTextBlock) -> str | None:
     """Word style name for a block, or None for default body text."""
     heading_level = block.blockFormat().headingLevel()
     if heading_level > 0:
         return f"Heading {min(heading_level, 9)}"
-    text_list = block.textList()
-    if text_list is not None:
-        style = text_list.format().style()
-        from PySide6.QtGui import QTextListFormat
-
-        numbered_styles = (
-            QTextListFormat.Style.ListDecimal,
-            QTextListFormat.Style.ListLowerAlpha,
-            QTextListFormat.Style.ListUpperAlpha,
-            QTextListFormat.Style.ListLowerRoman,
-            QTextListFormat.Style.ListUpperRoman,
-        )
-        return "List Number" if style in numbered_styles else "List Bullet"
+    if block.textList() is not None and not _is_numbered_list(block):
+        return "List Bullet"
     return None
 
 
@@ -77,6 +94,12 @@ def _write_block(docx_doc: DocxDocument, block: QTextBlock, force_page_break: bo
 
     if needs_break:
         paragraph.add_run().add_break(WD_BREAK.PAGE)
+
+    if _is_numbered_list(block):
+        # Literal number + indent instead of Word auto-numbering, so "4."
+        # stays "4." in the export.
+        paragraph.paragraph_format.left_indent = Inches(0.25)
+        paragraph.add_run(f"{_numbered_item_label(block)} ")
 
     iterator = block.begin()
     while not iterator.atEnd():

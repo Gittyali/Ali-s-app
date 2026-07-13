@@ -136,17 +136,22 @@ class ImageViewer(QWidget):
         self._enhance_button.setCheckable(True)
         bar.addSeparator()
 
-        bar.addWidget(QLabel(" Brightness "))
-        self._brightness_slider = self._make_slider(bar, self._on_brightness)
-        bar.addWidget(QLabel(" Contrast "))
-        self._contrast_slider = self._make_slider(bar, self._on_contrast)
+        brightness_label = QLabel(" ☀ ")
+        brightness_label.setToolTip("Brightness")
+        bar.addWidget(brightness_label)
+        self._brightness_slider = self._make_slider(bar, self._on_brightness, "Brightness")
+        contrast_label = QLabel(" ◑ ")
+        contrast_label.setToolTip("Contrast")
+        bar.addWidget(contrast_label)
+        self._contrast_slider = self._make_slider(bar, self._on_contrast, "Contrast")
         return bar
 
-    def _make_slider(self, bar: QToolBar, slot) -> QSlider:
+    def _make_slider(self, bar: QToolBar, slot, tooltip: str) -> QSlider:
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(20, 200)  # 0.2x .. 2.0x
         slider.setValue(100)
-        slider.setFixedWidth(90)
+        slider.setFixedWidth(80)
+        slider.setToolTip(tooltip)
         slider.valueChanged.connect(slot)
         bar.addWidget(slider)
         return slider
