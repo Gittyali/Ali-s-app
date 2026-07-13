@@ -79,9 +79,17 @@ class MainWindow(QMainWindow):
         self._autosave = AutosaveManager(self)
         self._dictation = DictationSession(self)
         self._command_parser = VoiceCommandParser()
+        # Append mode: page that hosts the combined document for the current
+        # batch. Pinned at batch start so mid-batch navigation cannot split
+        # the output across pages.
+        self._append_host_page_id: str = ""
 
         self.setWindowTitle(f"{__app_name__} {__version__}")
         self.resize(1400, 860)
+        # Fully resizable from every edge/corner: only a small floor so the
+        # window never collapses into an unusable sliver. All panes live in
+        # a splitter and toolbars overflow into "»" popups, so any size works.
+        self.setMinimumSize(720, 460)
 
         self._sidebar = PageSidebar(self)
         self._viewer = ImageViewer(self)
@@ -95,6 +103,7 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 1)
         splitter.setSizes([200, 620, 580])
+        splitter.setChildrenCollapsible(True)
         self.setCentralWidget(splitter)
 
         self._build_actions()
@@ -138,9 +147,47 @@ class MainWindow(QMainWindow):
         self._action_settings.triggered.connect(self._open_settings)
 
     def _build_toolbar(self) -> None:
+        # Standard-theme icons keep the look native and professional without
+        # bundling an icon set; text stays beside the icon for clarity.
+        style = self.style()
+        icons = {
+            self._action_new_project: style.standardIcon(
+                style.StandardPixmap.SP_FileIcon
+            ),
+            self._action_open_project: style.standardIcon(
+                style.StandardPixmap.SP_DirOpenIcon
+            ),
+            self._action_save_project: style.standardIcon(
+                style.StandardPixmap.SP_DialogSaveButton
+            ),
+            self._action_import: style.standardIcon(
+                style.StandardPixmap.SP_FileDialogNewFolder
+            ),
+            self._action_read_page: style.standardIcon(
+                style.StandardPixmap.SP_MediaPlay
+            ),
+            self._action_read_all: style.standardIcon(
+                style.StandardPixmap.SP_MediaSeekForward
+            ),
+            self._action_dictate: style.standardIcon(
+                style.StandardPixmap.SP_MediaVolume
+            ),
+            self._action_prev_page: style.standardIcon(
+                style.StandardPixmap.SP_ArrowLeft
+            ),
+            self._action_next_page: style.standardIcon(
+                style.StandardPixmap.SP_ArrowRight
+            ),
+            self._action_settings: style.standardIcon(
+                style.StandardPixmap.SP_FileDialogDetailedView
+            ),
+        }
+        for action, icon in icons.items():
+            action.setIcon(icon)
+
         toolbar = QToolBar("Main", self)
         toolbar.setMovable(False)
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         for action in (
             self._action_new_project,
             self._action_open_project,
@@ -191,6 +238,8 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         self._sidebar.page_selected.connect(self._on_page_selected)
+        self._sidebar.selection_changed.connect(self._on_sidebar_selection_changed)
+        self._sidebar.pages_reordered.connect(self._on_pages_reordered)
         self._sidebar.page_delete_requested.connect(self._on_page_delete)
         self._viewer.adjustments_changed.connect(self._on_adjustments_changed)
         self._editor.content_edited.connect(self._on_content_edited)
@@ -380,19 +429,32 @@ class MainWindow(QMainWindow):
         paths = [Path(f) for f in files]
         self._status_job.setText("Importing…")
         self._action_import.setEnabled(False)
+        pages_before_import = len(self._project.pages)
 
         def do_import(progress_callback=None) -> int:
             new_pages = self._project.import_files(paths, progress_callback)
             return len(new_pages)
 
+        def maybe_auto_read() -> None:
+            if not self._settings.auto_read_after_import or self._project is None:
+                return
+            new_pages = self._project.pages[pages_before_import:]
+            if new_pages:
+                self._status_job.setText(
+                    f"Auto-reading {len(new_pages)} imported page(s)…"
+                )
+                self._start_batch(new_pages)
+
         def done(count: int) -> None:
             self._finish_import()
             self._status_job.setText(f"Imported {count} page(s)")
+            maybe_auto_read()
 
         def failed(message: str) -> None:
             # Partial imports still added pages; refresh before reporting.
             self._finish_import()
             self._show_error("Import problems", message)
+            maybe_auto_read()
 
         run_in_background(
             do_import,
@@ -421,6 +483,30 @@ class MainWindow(QMainWindow):
         if page_id == self._active_page_id:
             return
         self._activate_page(page_id)
+
+    def _on_sidebar_selection_changed(self, count: int) -> None:
+        """Smart button: reflect how many pages a read would cover."""
+        if count > 1:
+            self._action_read_page.setText(f"Read Selected Pages ({count})")
+        else:
+            self._action_read_page.setText("Read Current Page")
+
+    def _on_pages_reordered(self, ordered_ids: list) -> None:
+        """Drag-and-drop reorder: the sidebar order is authoritative."""
+        if self._project is None:
+            return
+        if self._project.reorder([str(page_id) for page_id in ordered_ids]):
+            self._sidebar.refresh_labels(self._project.pages)
+            index = self._project.page_index(self._active_page_id)
+            if index >= 0:
+                self._status_page.setText(
+                    f"Page {index + 1} of {len(self._project.pages)}"
+                )
+            self._status_job.setText("Pages reordered")
+        else:
+            # Defensive: an inconsistent drop result rebuilds the list from
+            # the project, which is the source of truth.
+            self._refresh_sidebar()
 
     def _navigate_relative(self, delta: int) -> None:
         """Keyboard/voice navigation to an adjacent page."""
@@ -551,9 +637,25 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ AI reading
     def _read_current_page(self) -> None:
-        if self._project is None or not self._active_page_id:
+        """Read the active page — or, with a multi-selection, the selected
+        pages sequentially in sidebar order (smart button)."""
+        if self._project is None:
             return
-        if not self._editor.is_empty():
+        selected = self._sidebar.selected_page_ids()
+        if len(selected) > 1:
+            pages = []
+            for page_id in selected:  # already in sidebar order
+                index = self._project.page_index(page_id)
+                if index >= 0:
+                    pages.append(self._project.pages[index])
+            self._start_batch(pages)
+            return
+
+        if not self._active_page_id:
+            return
+        # In replace mode a re-read overwrites the page's document; confirm.
+        # Append mode adds to the combined document, nothing is lost.
+        if self._settings.output_mode == "replace" and not self._editor.is_empty():
             answer = QMessageBox.question(
                 self,
                 "Replace page content?",
@@ -584,22 +686,86 @@ class MainWindow(QMainWindow):
     def _on_read_started(self, page_id: str) -> None:
         self._set_page_status(page_id, PageStatus.PROCESSING)
         self._status_job.setText("Reading page…")
+        if not self._controller.is_batch_active:
+            # Indeterminate "busy" bar for a single-page read.
+            self._batch_progress_bar.setRange(0, 0)
+            self._batch_progress_bar.setFormat("Reading…")
+            self._batch_progress_bar.show()
         self._update_action_states()
+
+    def _hide_single_read_progress(self) -> None:
+        if not self._controller.is_batch_active:
+            self._batch_progress_bar.hide()
 
     def _on_read_finished(self, outcome: ReadOutcome) -> None:
         if self._project is None:
             return
+        page_index = self._project.page_index(outcome.page_id)
+        if page_index < 0:
+            return  # page was removed while its read was in flight
+
+        if self._settings.output_mode == "append":
+            self._append_outcome(outcome, page_index)
+        else:
+            self._store_outcome_per_page(outcome)
         self._set_page_status(outcome.page_id, PageStatus.READ)
+
+        # Requirement: extracted text survives a crash mid-batch — snapshot
+        # after every completed page.
+        if self._controller.is_batch_active:
+            self._autosave.flush()
+
+        self._hide_single_read_progress()
+        source = "AI" if outcome.used_ai else "OCR"
+        self._status_job.setText(f"Page read complete ({source})")
+        if outcome.warning:
+            self._status_job.setText(outcome.warning)
+        self._update_action_states()
+
+    def _append_outcome(self, outcome: ReadOutcome, page_index: int) -> None:
+        """Append mode: every page joins ONE continuous document."""
+        # Host = the batch's pinned page, else the active page, else (single
+        # read started before anything was active) the page being read.
+        host_id = self._append_host_page_id or self._active_page_id
+        if not host_id:
+            self._sidebar.select_page(outcome.page_id)
+            self._activate_page(outcome.page_id)
+            host_id = outcome.page_id
+        separator = ""
+        if self._settings.insert_page_separators:
+            separator = f"— Page {page_index + 1} —"
+
+        if host_id == self._active_page_id:
+            self._editor.append_document(outcome.document, separator)
+            self._persist_active_document()
+            return
+        # The user navigated away mid-batch: append to the host page's
+        # stored document without touching what they are looking at.
+        from PySide6.QtGui import QTextDocument as _QTextDocument
+
+        host_index = self._project.page_index(host_id)
+        if host_index < 0:  # host page deleted mid-batch; fall back
+            self._store_outcome_per_page(outcome)
+            return
+        holder = _QTextDocument()
+        holder.setHtml(self._project.pages[host_index].document_html)
+        from app.formatting.rich_text import append_structured_document
+
+        append_structured_document(holder, outcome.document, separator)
+        self._project.set_page_document(host_id, holder.toHtml(), edited_by_user=False)
+
+    def _store_outcome_per_page(self, outcome: ReadOutcome) -> None:
+        """Replace mode: content replaces the owning page's document."""
         if outcome.page_id == self._active_page_id:
             # The user may have switched pages while reading; content goes to
             # the page it belongs to, and the editor only updates if that
             # page is still active.
             self._editor.insert_document(outcome.document, replace=True)
             self._persist_active_document()
-            self._set_page_status(outcome.page_id, PageStatus.READ)
         else:
-            from PySide6.QtGui import QTextDocument as _QTextDocument
             from PySide6.QtGui import QTextCursor as _QTextCursor
+            from PySide6.QtGui import QTextDocument as _QTextDocument
+
             from app.formatting.rich_text import insert_structured_document
 
             holder = _QTextDocument()
@@ -607,14 +773,10 @@ class MainWindow(QMainWindow):
             self._project.set_page_document(
                 outcome.page_id, holder.toHtml(), edited_by_user=False
             )
-        source = "AI" if outcome.used_ai else "OCR"
-        self._status_job.setText(f"Page read complete ({source})")
-        if outcome.warning:
-            self._status_job.setText(outcome.warning)
-        self._update_action_states()
 
     def _on_read_failed(self, page_id: str, message: str) -> None:
         self._set_page_status(page_id, PageStatus.PENDING)
+        self._hide_single_read_progress()
         self._status_job.setText("Reading failed")
         self._show_error("Could not read page", message)
         self._update_action_states()
@@ -657,9 +819,20 @@ class MainWindow(QMainWindow):
             targets = unread
         else:
             return
-        if not targets:
-            return
+        self._start_batch(targets)
 
+    def _start_batch(self, pages: list) -> None:
+        """Begin a sequential batch read of *pages* (already in sidebar order)."""
+        if self._project is None or not pages or self._controller.is_batch_active:
+            return
+        if self._settings.output_mode == "append":
+            # The combined document needs a host page. Use the active page,
+            # or open the first batch page (the user just started this read).
+            if not self._active_page_id:
+                self._sidebar.select_page(pages[0].page_id)
+                self._activate_page(pages[0].page_id)
+            self._append_host_page_id = self._active_page_id
+        self._persist_active_document()
         specs = [
             PageReadSpec(
                 page_id=page.page_id,
@@ -670,7 +843,7 @@ class MainWindow(QMainWindow):
                 enhanced=page.enhanced,
                 label=f"Page {self._project.page_index(page.page_id) + 1}",
             )
-            for page in targets
+            for page in pages
         ]
         self._controller.read_all_pages(specs)
 
@@ -682,6 +855,7 @@ class MainWindow(QMainWindow):
     def _on_batch_started(self, total: int) -> None:
         self._batch_progress_bar.setRange(0, total)
         self._batch_progress_bar.setValue(0)
+        self._batch_progress_bar.setFormat(f"Page 1 of {total}")
         self._batch_progress_bar.show()
         self._batch_cancel_button.setEnabled(True)
         self._batch_cancel_button.show()
@@ -706,6 +880,7 @@ class MainWindow(QMainWindow):
         logger.warning("Batch page failed (%s): %s", page_id, message)
 
     def _on_batch_finished(self, summary: BatchSummary) -> None:
+        self._append_host_page_id = ""
         self._batch_progress_bar.hide()
         self._batch_cancel_button.hide()
         self._update_action_states()
@@ -718,8 +893,8 @@ class MainWindow(QMainWindow):
 
         state = "cancelled" if summary.cancelled else "complete"
         self._status_job.setText(
-            f"Read All Pages {state}: {summary.succeeded} of {summary.total} "
-            "pages read"
+            f"Reading {state}: {summary.succeeded} completed, "
+            f"{len(summary.failures)} failed"
         )
         if summary.failures:
             detail = "\n".join(
@@ -729,19 +904,20 @@ class MainWindow(QMainWindow):
                 detail += f"\n… and {len(summary.failures) - 10} more"
             QMessageBox.warning(
                 self,
-                "Read All Pages finished with problems",
-                f"{summary.succeeded} of {summary.total} pages were read "
-                f"successfully. These pages failed and were skipped:\n\n{detail}\n\n"
-                "You can fix the cause (see Settings) and run Read All Pages "
-                "again with 'Only unread pages'.",
+                "Reading finished with problems",
+                f"{summary.succeeded} completed\n"
+                f"{len(summary.failures)} failed\n\nFailed pages (skipped):\n"
+                f"{detail}\n\n"
+                "You can fix the cause (see Settings) and read the failed "
+                "pages again — e.g. Read All Pages > 'Only unread pages'.",
             )
         elif not summary.cancelled:
             QMessageBox.information(
                 self,
-                "Read All Pages complete",
-                f"All {summary.succeeded} pages were read successfully.\n\n"
-                "Review each page in the editor, then use Export DOCX/PDF to "
-                "produce the combined document.",
+                "Reading complete",
+                f"{summary.succeeded} completed\n0 failed\n\n"
+                "Review the document in the editor, then use Export DOCX/PDF "
+                "to produce the final file.",
             )
 
     # ------------------------------------------------------------ dictation

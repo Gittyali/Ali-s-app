@@ -12,7 +12,7 @@ from pathlib import Path
 
 from docx import Document as DocxDocument
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
-from docx.shared import Pt
+from docx.shared import Inches, Pt
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextBlock, QTextBlockFormat, QTextDocument, QTextFrame
 from PySide6.QtGui import QTextTable  # noqa: F401 (isinstance target)
@@ -146,6 +146,13 @@ def export_docx(page_htmls: list[str], output_path: Path) -> Path:
     message on failure.
     """
     docx_doc = DocxDocument()
+    # Word-standard 1-inch margins so the export matches what users expect
+    # from a normal document.
+    for section in docx_doc.sections:
+        section.top_margin = Inches(1)
+        section.bottom_margin = Inches(1)
+        section.left_margin = Inches(1)
+        section.right_margin = Inches(1)
     try:
         for index, html in enumerate(page_htmls):
             qt_document = QTextDocument()

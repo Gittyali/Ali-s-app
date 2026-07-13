@@ -31,7 +31,14 @@ class GeminiVisionProvider(VisionProvider):
     def is_configured(self) -> bool:
         return bool(self._api_key)
 
-    def read_page(self, image: Image.Image, ocr_hint: str = "") -> str:
+    def read_page(
+        self,
+        image: Image.Image,
+        ocr_hint: str = "",
+        *,
+        ignore_underlines: bool = True,
+        ignore_watermarks: bool = True,
+    ) -> str:
         if not self.is_configured():
             raise VisionProviderError(
                 "No Gemini API key configured. Add one in Settings > AI Provider."
@@ -50,7 +57,11 @@ class GeminiVisionProvider(VisionProvider):
                                 ).decode("ascii"),
                             }
                         },
-                        {"text": build_user_prompt(ocr_hint)},
+                        {
+                            "text": build_user_prompt(
+                                ocr_hint, ignore_underlines, ignore_watermarks
+                            )
+                        },
                     ],
                 }
             ],

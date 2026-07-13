@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QTextBlockFormat,
     QTextCharFormat,
     QTextCursor,
+    QTextDocument,
     QTextListFormat,
     QTextTableFormat,
 )
@@ -160,3 +161,39 @@ def _insert_block(cursor: QTextCursor, block: Block) -> None:
         _insert_table(cursor, block)
     else:  # Defensive: unknown block types must never crash the editor.
         logger.warning("Skipping unknown block type: %r", block)
+
+
+def append_structured_document(
+    target: QTextDocument,
+    document: StructuredDocument,
+    separator_text: str = "",
+) -> None:
+    """Append *document* to the END of *target* as one undoable edit.
+
+    Used by single-document ("append") output mode: page after page is
+    added to one continuous document.  A blank line separates pages; when
+    *separator_text* is given (e.g. ``"— Page 3 —"``) a small centered
+    marker line is inserted before the new content.
+    """
+    cursor = QTextCursor(target)
+    cursor.movePosition(QTextCursor.MoveOperation.End)
+    cursor.beginEditBlock()
+    try:
+        has_content = bool(target.toPlainText().strip())
+        if has_content:
+            # Blank line between the previous page and the new one.
+            cursor.insertBlock(_block_format(TextAlignment.LEFT))
+        if separator_text:
+            separator_block = _block_format(TextAlignment.CENTER)
+            cursor.insertBlock(separator_block)
+            marker_format = QTextCharFormat()
+            marker_format.setFontPointSize(FOOTNOTE_POINT_SIZE)
+            marker_format.setFontItalic(True)
+            cursor.insertText(separator_text, marker_format)
+        for block in document.blocks:
+            _insert_block(cursor, block)
+    finally:
+        cursor.endEditBlock()
+    logger.debug(
+        "Appended %d blocks (separator=%r)", len(document.blocks), separator_text
+    )

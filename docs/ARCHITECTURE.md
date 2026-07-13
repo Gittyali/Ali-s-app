@@ -45,7 +45,20 @@ Rules that keep the graph clean:
    `formatting.rich_text` **only if that page is still active** — otherwise
    the content is stored directly on its page. Reading never switches pages.
 
-## The batch pipeline (Read All Pages)
+## Output modes (append vs replace)
+
+`Settings > Reading > Output mode` decides where recognised content goes:
+
+- **append** (default): every read result joins ONE continuous document,
+  in sidebar order, separated by a blank line and an optional
+  "— Page N —" marker. The combined document is hosted on a page pinned at
+  batch start (the active page), so navigating mid-batch cannot split the
+  output. `formatting.rich_text.append_structured_document` implements the
+  append as a single undoable edit.
+- **replace**: each page's result replaces that page's own document
+  (the original behaviour); export concatenates pages in order.
+
+## The batch pipeline (Read Selected / Read All Pages)
 
 `AppController.read_all_pages(list[PageReadSpec])` runs one worker that
 loops over the pages **sequentially and in page order**. Each spec carries

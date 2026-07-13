@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -58,6 +59,7 @@ class SettingsDialog(QDialog):
 
         tabs = QTabWidget(self)
         tabs.addTab(self._build_general_tab(), "General")
+        tabs.addTab(self._build_reading_tab(), "Reading")
         tabs.addTab(self._build_ocr_tab(), "OCR")
         tabs.addTab(self._build_ai_tab(), "AI Provider")
         tabs.addTab(self._build_speech_tab(), "Speech")
@@ -105,6 +107,59 @@ class SettingsDialog(QDialog):
         )
         if folder:
             self._export_folder.setText(folder)
+
+    # -------------------------------------------------------------- reading
+    def _build_reading_tab(self) -> QWidget:
+        widget = QWidget(self)
+        form = QFormLayout(widget)
+
+        self._output_mode_box = QComboBox()
+        self._output_mode_box.addItem(
+            "Append — build one continuous document", "append"
+        )
+        self._output_mode_box.addItem(
+            "Replace — store content on each page", "replace"
+        )
+        self._output_mode_box.setCurrentIndex(
+            0 if self._settings.output_mode == "append" else 1
+        )
+        form.addRow("Output mode:", self._output_mode_box)
+
+        self._auto_read_check = QCheckBox("Start reading automatically after import")
+        self._auto_read_check.setChecked(self._settings.auto_read_after_import)
+        form.addRow("Auto read:", self._auto_read_check)
+
+        self._separators_check = QCheckBox(
+            "Insert a small “— Page N —” marker between appended pages"
+        )
+        self._separators_check.setChecked(self._settings.insert_page_separators)
+        form.addRow("Page separators:", self._separators_check)
+
+        self._continue_check = QCheckBox(
+            "Continue with the remaining pages when one page fails"
+        )
+        self._continue_check.setChecked(self._settings.continue_after_error)
+        form.addRow("On errors:", self._continue_check)
+
+        self._underlines_check = QCheckBox(
+            "Ignore decorative underlines (ruled/notebook lines, form rules)"
+        )
+        self._underlines_check.setChecked(self._settings.ignore_decorative_underlines)
+        form.addRow("Underlines:", self._underlines_check)
+
+        self._watermarks_check = QCheckBox(
+            "Ignore watermarks, stamps, logos and background noise"
+        )
+        self._watermarks_check.setChecked(self._settings.ignore_watermarks)
+        form.addRow("Watermarks:", self._watermarks_check)
+
+        form.addRow(
+            QLabel(
+                "Append mode collects every page you read into one continuous "
+                "document in the editor, in sidebar order."
+            )
+        )
+        return widget
 
     # ------------------------------------------------------------------ ocr
     def _build_ocr_tab(self) -> QWidget:
@@ -239,6 +294,13 @@ class SettingsDialog(QDialog):
         settings.theme = str(self._theme_box.currentData())
         settings.export_folder = self._export_folder.text().strip()
         settings.autosave_interval_minutes = self._autosave_spin.value()
+
+        settings.output_mode = str(self._output_mode_box.currentData())
+        settings.auto_read_after_import = self._auto_read_check.isChecked()
+        settings.insert_page_separators = self._separators_check.isChecked()
+        settings.continue_after_error = self._continue_check.isChecked()
+        settings.ignore_decorative_underlines = self._underlines_check.isChecked()
+        settings.ignore_watermarks = self._watermarks_check.isChecked()
 
         settings.ocr_engine = str(self._ocr_box.currentData())
         settings.ocr_languages = self._ocr_languages.text().strip() or "eng"

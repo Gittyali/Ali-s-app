@@ -2,39 +2,51 @@
 
 Every provider sends the same instructions so results are interchangeable.
 The output contract is the constrained Markdown dialect understood by
-:mod:`app.formatting.markdown_parser`.
+:mod:`app.formatting.markdown_parser`.  The decorative-underline and
+watermark clauses are toggled by user settings (Settings > Reading).
 """
 
 from __future__ import annotations
 
 SYSTEM_PROMPT = (
-    "You are a professional document transcription engine. You convert "
-    "images of scanned pages and screenshots into faithful, well-structured "
-    "documents. You never invent content and never summarise."
+    "You are an expert OCR transcription assistant. You convert images of "
+    "scanned pages and screenshots into faithful, well-structured documents. "
+    "You never summarise, never explain, never describe images, never "
+    "hallucinate and never invent missing words."
 )
 
 READ_PAGE_INSTRUCTIONS = """\
-Transcribe this page into Markdown, reconstructing the document's structure \
-exactly as it appears:
+Extract ONLY the meaningful visible text of this page and reconstruct the
+document exactly as it appears, as Markdown:
 
-- Use `#` for the main heading/title and `##`/`###` for subheadings.
-- Keep paragraphs intact; separate them with blank lines.
-- Use `- ` for bulleted lists and `1. ` for numbered lists.
-- Reproduce tables as Markdown pipe tables (header row, then `|---|` separator).
-- Preserve **bold**, *italic* and <u>underlined</u> text where visible.
+- Preserve headings (`#` for the title, `##`/`###` for subheadings),
+  paragraphs, lists (`- ` bullets, `1. ` numbering), tables (Markdown pipe
+  tables with a `|---|` separator row) and the natural reading order.
+- Preserve **bold** and *italic* where genuinely present in the typography.
 - Wrap visually centered lines in <center>...</center>.
 - Transcribe footnotes at the end as `[^1]: text`.
 - Preserve all numbers, dates, amounts and legal citations exactly as written.
 - Keep the original language(s) of the text; do not translate.
-- IGNORE decorative elements entirely: watermarks, background stamps, page
-  borders, ruled/notebook lines, and scanner artifacts must NOT appear in
-  the output.
-- Do NOT mark text as underlined just because a decorative rule, form line
-  or highlight passes under it; use <u>...</u> only for genuinely
-  underlined words in the original typography.
-- Ignore highlighting/marker colour over text: transcribe the text itself
-  with no special formatting for the highlight.
-- Output ONLY the Markdown transcription: no commentary, no code fences.
+- If a word or passage is unreadable, write [unclear] in its place.
+- Do NOT summarize. Do NOT explain. Do NOT describe images. Do NOT
+  hallucinate or invent missing words.
+- Return ONLY the reconstructed document text as Markdown: no commentary,
+  no code fences.
+"""
+
+IGNORE_UNDERLINES_CLAUSE = """\
+- Decorative underlines: many pages have every line underlined by ruled/
+  notebook lines or form rules. Do NOT mark text as underlined because a
+  line, rule or highlight passes under it. Use <u>...</u> only when an
+  underline is genuinely meaningful in the original typography (e.g. a
+  single defined term); when in doubt, omit the underline.
+"""
+
+IGNORE_WATERMARKS_CLAUSE = """\
+- Ignore decorative elements entirely: watermarks, background stamps,
+  logos, page borders, background graphics, shadows, highlighter marks and
+  scanner noise must NOT appear in the output. Transcribe highlighted text
+  itself with no special formatting for the highlight.
 """
 
 OCR_HINT_PREFIX = (
@@ -43,9 +55,17 @@ OCR_HINT_PREFIX = (
 )
 
 
-def build_user_prompt(ocr_hint: str = "") -> str:
-    """Compose the user-message text, optionally embedding an OCR hint."""
+def build_user_prompt(
+    ocr_hint: str = "",
+    ignore_underlines: bool = True,
+    ignore_watermarks: bool = True,
+) -> str:
+    """Compose the user-message text with the configured extraction rules."""
     prompt = READ_PAGE_INSTRUCTIONS
+    if ignore_underlines:
+        prompt += IGNORE_UNDERLINES_CLAUSE
+    if ignore_watermarks:
+        prompt += IGNORE_WATERMARKS_CLAUSE
     hint = ocr_hint.strip()
     if hint:
         # Cap the hint so huge OCR dumps do not blow the context window.

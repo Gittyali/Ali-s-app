@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,6 +30,28 @@ from app.vision.base import VisionProviderError
 from app.vision.factory import create_provider
 
 logger = logging.getLogger(__name__)
+
+# Transient API failures worth retrying (rate limits, server hiccups,
+# network drops). Anything else fails immediately.
+_TRANSIENT_MARKERS = (
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "could not reach",
+    "timeout",
+    "timed out",
+    "overloaded",
+    "connection",
+)
+_MAX_PROVIDER_ATTEMPTS = 3
+_RETRY_BASE_DELAY_SECONDS = 2.0
+
+
+def _is_transient_provider_error(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _TRANSIENT_MARKERS)
 
 
 class ReadOutcome:
@@ -119,12 +142,15 @@ class AppController(QObject):
     def is_batch_active(self) -> bool:
         return self._batch_active
 
-    def _settings_snapshot(self) -> dict[str, str]:
-        """Copy the OCR settings so a running job is immune to edits."""
+    def _settings_snapshot(self) -> dict[str, object]:
+        """Copy the relevant settings so a running job is immune to edits."""
         return {
             "ocr_engine": self._settings.ocr_engine,
             "ocr_languages": self._settings.ocr_languages,
             "tesseract_path": self._settings.tesseract_path,
+            "ignore_underlines": self._settings.ignore_decorative_underlines,
+            "ignore_watermarks": self._settings.ignore_watermarks,
+            "continue_after_error": self._settings.continue_after_error,
         }
 
     # ------------------------------------------------------- single page
@@ -149,11 +175,55 @@ class AppController(QObject):
             on_error=lambda message, pid=page_id: self._on_pipeline_error(pid, message),
         )
 
+    def _call_provider_with_retry(
+        self,
+        provider: object,
+        image: Image.Image,
+        hint: str,
+        snapshot: dict[str, object],
+        page_id: str,
+    ) -> str:
+        """Call the vision provider, retrying transient failures with backoff."""
+        attempt = 1
+        while True:
+            try:
+                return provider.read_page(  # type: ignore[attr-defined]
+                    image,
+                    ocr_hint=hint,
+                    ignore_underlines=bool(snapshot["ignore_underlines"]),
+                    ignore_watermarks=bool(snapshot["ignore_watermarks"]),
+                )
+            except VisionProviderError as exc:
+                transient = _is_transient_provider_error(str(exc))
+                if not transient or attempt >= _MAX_PROVIDER_ATTEMPTS:
+                    raise
+                delay = _RETRY_BASE_DELAY_SECONDS * attempt
+                logger.warning(
+                    "Transient provider error for page %s (attempt %d/%d), "
+                    "retrying in %.0fs: %s",
+                    page_id,
+                    attempt,
+                    _MAX_PROVIDER_ATTEMPTS,
+                    delay,
+                    exc,
+                )
+                self.read_progress.emit(
+                    page_id, f"API hiccup, retrying ({attempt + 1}/{_MAX_PROVIDER_ATTEMPTS})…"
+                )
+                # Sleep in small slices so a batch cancel is not held up.
+                slept = 0.0
+                while slept < delay and not self._batch_cancel.is_set():
+                    time.sleep(0.2)
+                    slept += 0.2
+                if self._batch_cancel.is_set() and self._batch_active:
+                    raise
+                attempt += 1
+
     def _recognize(
         self,
         page_id: str,
         image: Image.Image,
-        settings_snapshot: dict[str, str],
+        settings_snapshot: dict[str, object],
         provider: object,
     ) -> ReadOutcome:
         """Shared recognition core; runs on a worker thread (no widgets).
@@ -165,15 +235,18 @@ class AppController(QObject):
         def report(stage: str) -> None:
             self.read_progress.emit(page_id, stage)
 
+        filter_noise = bool(settings_snapshot["ignore_watermarks"])
         ocr_result: OCRResult | None = None
         ocr_error = ""
         report("Running OCR…")
         try:
             engine = create_engine(
-                settings_snapshot["ocr_engine"],
-                tesseract_path=settings_snapshot["tesseract_path"],
+                str(settings_snapshot["ocr_engine"]),
+                tesseract_path=str(settings_snapshot["tesseract_path"]),
             )
-            ocr_result = engine.recognize(image, settings_snapshot["ocr_languages"])
+            ocr_result = engine.recognize(
+                image, str(settings_snapshot["ocr_languages"])
+            )
         except (OCREngineNotAvailableError, RuntimeError) as exc:
             ocr_error = str(exc)
             logger.warning("OCR unavailable/failed for page %s: %s", page_id, exc)
@@ -183,7 +256,9 @@ class AppController(QObject):
             report("Asking the AI to reconstruct the page…")
             try:
                 hint = ocr_result.text if ocr_result is not None else ""
-                markdown = provider.read_page(image, ocr_hint=hint)  # type: ignore[attr-defined]
+                markdown = self._call_provider_with_retry(
+                    provider, image, hint, settings_snapshot, page_id
+                )
                 document = parse_markdown(markdown)
                 if not document.is_empty():
                     return ReadOutcome(page_id, document, used_ai=True)
@@ -193,7 +268,7 @@ class AppController(QObject):
                 if ocr_result is not None:
                     return ReadOutcome(
                         page_id,
-                        reconstruct_document(ocr_result),
+                        reconstruct_document(ocr_result, filter_noise=filter_noise),
                         warning=f"AI reading failed ({exc}); used OCR instead.",
                     )
                 raise RuntimeError(
@@ -208,7 +283,7 @@ class AppController(QObject):
                 or "No OCR engine or AI provider is available. Configure one in Settings."
             )
         report("Reconstructing layout…")
-        document = reconstruct_document(ocr_result)
+        document = reconstruct_document(ocr_result, filter_noise=filter_noise)
         warning = ""
         if ocr_result.mean_confidence and ocr_result.mean_confidence < 0.55:
             warning = (
@@ -266,14 +341,20 @@ class AppController(QObject):
     def _batch_pipeline(
         self,
         specs: list[PageReadSpec],
-        settings_snapshot: dict[str, str],
+        settings_snapshot: dict[str, object],
         provider: object,
     ) -> BatchSummary:
-        """Sequential batch loop; runs entirely on one worker thread."""
+        """Sequential batch loop; runs entirely on one worker thread.
+
+        Pages are processed strictly in the given (sidebar) order, one at a
+        time — never in parallel — so results always arrive in order and
+        the AI provider is never hit with a huge concurrent burst.
+        """
         total = len(specs)
         succeeded = 0
         failures: list[tuple[str, str]] = []
         cancelled = False
+        continue_after_error = bool(settings_snapshot["continue_after_error"])
 
         for index, spec in enumerate(specs, start=1):
             if self._batch_cancel.is_set():
@@ -290,11 +371,14 @@ class AppController(QObject):
                     spec.page_id, image, settings_snapshot, provider
                 )
             except Exception as exc:
-                # One bad page must never stop the batch.
                 logger.warning("Batch: page %d/%d failed: %s", index, total, exc)
                 failures.append((spec.label or f"Item {index}", str(exc)))
                 self.batch_page_failed.emit(spec.page_id, str(exc))
-                continue
+                if continue_after_error:
+                    continue
+                # Settings > Reading > Continue after error is off: stop here.
+                cancelled = True
+                break
             succeeded += 1
             self.read_finished.emit(outcome)
 

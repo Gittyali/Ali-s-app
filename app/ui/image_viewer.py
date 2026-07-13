@@ -12,15 +12,15 @@ import logging
 from pathlib import Path
 
 from PIL import Image
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QPainter, QPixmap, QWheelEvent
 from PySide6.QtWidgets import (
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
-    QHBoxLayout,
     QLabel,
     QSlider,
+    QToolBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -108,22 +108,25 @@ class ImageViewer(QWidget):
 
     # ------------------------------------------------------------- controls
     def _build_controls(self) -> QWidget:
-        bar = QWidget(self)
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(4, 2, 4, 2)
+        # A QToolBar collapses overflowing controls into a "»" popup, so the
+        # viewer keeps working at any window width (responsive layout).
+        bar = QToolBar("Image tools", self)
+        bar.setMovable(False)
+        bar.setIconSize(QSize(16, 16))
 
         def tool(text: str, tooltip: str, slot) -> QToolButton:
             button = QToolButton(bar)
             button.setText(text)
             button.setToolTip(tooltip)
             button.clicked.connect(slot)
-            row.addWidget(button)
+            bar.addWidget(button)
             return button
 
         tool("+", "Zoom in (Ctrl++)", self.zoom_in)
         tool("−", "Zoom out (Ctrl+-)", self.zoom_out)
         tool("Fit", "Fit to screen (Ctrl+0)", self.fit_to_screen)
         tool("100%", "Actual size", self.actual_size)
+        bar.addSeparator()
         tool("⟳", "Rotate 90° clockwise", lambda: self.rotate(90))
         tool("⟲", "Rotate 90° counter-clockwise", lambda: self.rotate(-90))
         self._enhance_button = tool(
@@ -131,22 +134,21 @@ class ImageViewer(QWidget):
             self._toggle_enhance,
         )
         self._enhance_button.setCheckable(True)
+        bar.addSeparator()
 
-        row.addSpacing(10)
-        row.addWidget(QLabel("Brightness"))
-        self._brightness_slider = self._make_slider(row, self._on_brightness)
-        row.addWidget(QLabel("Contrast"))
-        self._contrast_slider = self._make_slider(row, self._on_contrast)
-        row.addStretch(1)
+        bar.addWidget(QLabel(" Brightness "))
+        self._brightness_slider = self._make_slider(bar, self._on_brightness)
+        bar.addWidget(QLabel(" Contrast "))
+        self._contrast_slider = self._make_slider(bar, self._on_contrast)
         return bar
 
-    def _make_slider(self, row: QHBoxLayout, slot) -> QSlider:
+    def _make_slider(self, bar: QToolBar, slot) -> QSlider:
         slider = QSlider(Qt.Orientation.Horizontal)
         slider.setRange(20, 200)  # 0.2x .. 2.0x
         slider.setValue(100)
-        slider.setFixedWidth(110)
+        slider.setFixedWidth(90)
         slider.valueChanged.connect(slot)
-        row.addWidget(slider)
+        bar.addWidget(slider)
         return slider
 
     # ------------------------------------------------------------- loading

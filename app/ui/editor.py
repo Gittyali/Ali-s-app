@@ -22,8 +22,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QComboBox,
-    QHBoxLayout,
     QTextEdit,
+    QToolBar,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -33,6 +33,7 @@ from app.document.model import StructuredDocument
 from app.formatting.rich_text import (
     BODY_POINT_SIZE,
     HEADING_POINT_SIZES,
+    append_structured_document,
     insert_structured_document,
 )
 from app.speech.commands import CommandType, ParsedCommand
@@ -76,9 +77,10 @@ class DocumentEditor(QWidget):
 
     # -------------------------------------------------------------- toolbar
     def _build_toolbar(self) -> QWidget:
-        bar = QWidget(self)
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(4, 2, 4, 2)
+        # A QToolBar collapses overflowing controls into a "»" popup, so the
+        # editor keeps every tool reachable at any window width.
+        bar = QToolBar("Formatting", self)
+        bar.setMovable(False)
 
         def tool(
             text: str, tooltip: str, slot, checkable: bool = False
@@ -88,12 +90,12 @@ class DocumentEditor(QWidget):
             button.setToolTip(tooltip)
             button.setCheckable(checkable)
             button.clicked.connect(slot)
-            row.addWidget(button)
+            bar.addWidget(button)
             return button
 
         tool("↶", "Undo (Ctrl+Z)", self._edit.undo)
         tool("↷", "Redo (Ctrl+Y)", self._edit.redo)
-        row.addSpacing(8)
+        bar.addSeparator()
 
         self._size_box = QComboBox(bar)
         self._size_box.setToolTip("Font size")
@@ -101,7 +103,7 @@ class DocumentEditor(QWidget):
             self._size_box.addItem(str(size), size)
         self._size_box.setCurrentText(str(int(BODY_POINT_SIZE)))
         self._size_box.activated.connect(self._on_font_size)
-        row.addWidget(self._size_box)
+        bar.addWidget(self._size_box)
 
         self._bold_button = tool("B", "Bold (Ctrl+B)", self.toggle_bold, True)
         self._bold_button.setStyleSheet("font-weight: bold;")
@@ -109,31 +111,30 @@ class DocumentEditor(QWidget):
         self._italic_button.setStyleSheet("font-style: italic;")
         self._underline_button = tool("U", "Underline (Ctrl+U)", self.toggle_underline, True)
         self._underline_button.setStyleSheet("text-decoration: underline;")
-        row.addSpacing(8)
+        bar.addSeparator()
 
         tool("H1", "Heading", lambda: self.apply_heading(1))
         tool("H2", "Subheading", lambda: self.apply_heading(2))
         tool("¶", "Normal paragraph", lambda: self.apply_heading(0))
-        row.addSpacing(8)
+        bar.addSeparator()
 
         tool("⯇", "Align left", lambda: self.set_alignment(Qt.AlignmentFlag.AlignLeft))
         tool("≡", "Center", lambda: self.set_alignment(Qt.AlignmentFlag.AlignCenter))
         tool("⯈", "Align right", lambda: self.set_alignment(Qt.AlignmentFlag.AlignRight))
-        row.addSpacing(8)
+        bar.addSeparator()
 
         tool("•", "Bullet list", self.toggle_bullet_list)
         tool("1.", "Numbered list", self.toggle_numbered_list)
-        row.addSpacing(8)
+        bar.addSeparator()
 
         self._spacing_box = QComboBox(bar)
         self._spacing_box.setToolTip("Line spacing")
         for label in _LINE_SPACINGS:
             self._spacing_box.addItem(label)
         self._spacing_box.activated.connect(self._on_line_spacing)
-        row.addWidget(self._spacing_box)
+        bar.addWidget(self._spacing_box)
 
         tool("⤓", "Insert page break", self.insert_page_break)
-        row.addStretch(1)
         return bar
 
     def _sync_toolbar_state(self) -> None:
@@ -168,6 +169,16 @@ class DocumentEditor(QWidget):
         insert_structured_document(cursor, document)
         self._edit.setTextCursor(cursor)
         self._edit.setFocus()
+
+    def append_document(
+        self, document: StructuredDocument, separator_text: str = ""
+    ) -> None:
+        """Append recognised content at the end (single-document mode).
+
+        Keeps the user's scroll/cursor position: content grows at the end
+        while they may be correcting an earlier page.
+        """
+        append_structured_document(self._edit.document(), document, separator_text)
 
     def set_editor_enabled(self, enabled: bool) -> None:
         self._edit.setEnabled(enabled)

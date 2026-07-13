@@ -9,6 +9,13 @@ Converts between representations:
 """
 
 from app.formatting.markdown_parser import parse_markdown
-from app.formatting.rich_text import insert_structured_document
+from app.formatting.rich_text import (
+    append_structured_document,
+    insert_structured_document,
+)
 
-__all__ = ["parse_markdown", "insert_structured_document"]
+__all__ = [
+    "append_structured_document",
+    "insert_structured_document",
+    "parse_markdown",
+]

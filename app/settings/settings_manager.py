@@ -112,6 +112,71 @@ class SettingsManager(QObject):
     def last_project_path(self, value: str) -> None:
         self._set("general/last_project_path", value)
 
+    # -------------------------------------------------------------- reading
+    def _get_bool(self, key: str, default: bool) -> bool:
+        value = self._get(key, default)
+        if isinstance(value, bool):
+            return value
+        return str(value).lower() in ("true", "1", "yes")
+
+    @property
+    def output_mode(self) -> str:
+        """Where extracted text goes: ``append`` builds one continuous
+        document in the editor; ``replace`` stores content per page."""
+        value = str(self._get("reading/output_mode", "append"))
+        return value if value in ("append", "replace") else "append"
+
+    @output_mode.setter
+    def output_mode(self, value: str) -> None:
+        self._set(
+            "reading/output_mode", value if value in ("append", "replace") else "append"
+        )
+
+    @property
+    def auto_read_after_import(self) -> bool:
+        """Start reading newly imported pages automatically."""
+        return self._get_bool("reading/auto_read_after_import", False)
+
+    @auto_read_after_import.setter
+    def auto_read_after_import(self, value: bool) -> None:
+        self._set("reading/auto_read_after_import", bool(value))
+
+    @property
+    def insert_page_separators(self) -> bool:
+        """In append mode, insert a "— Page N —" marker between pages."""
+        return self._get_bool("reading/insert_page_separators", True)
+
+    @insert_page_separators.setter
+    def insert_page_separators(self, value: bool) -> None:
+        self._set("reading/insert_page_separators", bool(value))
+
+    @property
+    def continue_after_error(self) -> bool:
+        """Keep a batch running when one page fails (skip and report)."""
+        return self._get_bool("reading/continue_after_error", True)
+
+    @continue_after_error.setter
+    def continue_after_error(self, value: bool) -> None:
+        self._set("reading/continue_after_error", bool(value))
+
+    @property
+    def ignore_decorative_underlines(self) -> bool:
+        """Do not reproduce underlines caused by ruled lines/decoration."""
+        return self._get_bool("reading/ignore_decorative_underlines", True)
+
+    @ignore_decorative_underlines.setter
+    def ignore_decorative_underlines(self, value: bool) -> None:
+        self._set("reading/ignore_decorative_underlines", bool(value))
+
+    @property
+    def ignore_watermarks(self) -> bool:
+        """Filter watermarks/stamps/background noise out of extractions."""
+        return self._get_bool("reading/ignore_watermarks", True)
+
+    @ignore_watermarks.setter
+    def ignore_watermarks(self, value: bool) -> None:
+        self._set("reading/ignore_watermarks", bool(value))
+
     # ------------------------------------------------------------------ ocr
     @property
     def ocr_engine(self) -> str:

@@ -90,7 +90,7 @@ def _looks_like_heading_text(text: str) -> bool:
     return True
 
 
-def _classify_lines(result: OCRResult) -> list[_Classified]:
+def _classify_lines(result: OCRResult, filter_noise: bool) -> list[_Classified]:
     median_height = _median([line.height for line in result.lines if line.height > 0])
     classified: list[_Classified] = []
     previous_bottom: int | None = None
@@ -99,7 +99,7 @@ def _classify_lines(result: OCRResult) -> list[_Classified]:
         text = line.text.strip()
         if not text:
             continue
-        if line.confidence < _MIN_LINE_CONFIDENCE:
+        if filter_noise and line.confidence < _MIN_LINE_CONFIDENCE:
             # Watermarks, stamps and bleed-through recognise as garbled,
             # low-confidence lines; dropping them keeps the document clean.
             logger.debug("Dropping low-confidence line: %r", text[:50])
@@ -143,9 +143,15 @@ def _classify_lines(result: OCRResult) -> list[_Classified]:
     return classified
 
 
-def reconstruct_document(result: OCRResult) -> StructuredDocument:
-    """Build a structured document from an OCR result."""
-    classified = _classify_lines(result)
+def reconstruct_document(
+    result: OCRResult, filter_noise: bool = True
+) -> StructuredDocument:
+    """Build a structured document from an OCR result.
+
+    *filter_noise* drops low-confidence lines (watermarks, stamps,
+    bleed-through); it maps to Settings > Reading > Ignore watermarks.
+    """
+    classified = _classify_lines(result, filter_noise)
     blocks: list[Block] = []
 
     paragraph_lines: list[str] = []

@@ -24,12 +24,21 @@ class VisionProvider(abc.ABC):
     display_name: str = ""
 
     @abc.abstractmethod
-    def read_page(self, image: Image.Image, ocr_hint: str = "") -> str:
+    def read_page(
+        self,
+        image: Image.Image,
+        ocr_hint: str = "",
+        *,
+        ignore_underlines: bool = True,
+        ignore_watermarks: bool = True,
+    ) -> str:
         """Return the page content as constrained Markdown.
 
         *ocr_hint* optionally carries raw OCR text for the same page; cloud
-        models use it to cross-check hard-to-read regions.  Implementations
-        raise :class:`VisionProviderError` on any failure (network, auth,
+        models use it to cross-check hard-to-read regions.  The two flags
+        toggle the decorative-underline and watermark/noise prompt clauses
+        (Settings > Reading).  Implementations raise
+        :class:`VisionProviderError` on any failure (network, auth,
         malformed response) with a message suitable for direct display.
         """
 

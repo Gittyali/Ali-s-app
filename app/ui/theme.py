@@ -12,6 +12,14 @@ QToolButton { padding: 4px 8px; border-radius: 4px; }
 QStatusBar QLabel { padding: 0 8px; }
 QListWidget::item { padding: 4px; }
 QSplitter::handle { width: 3px; }
+QProgressBar {
+    border: 1px solid #909090; border-radius: 4px;
+    text-align: center; min-height: 16px;
+}
+QProgressBar::chunk { background: #4a90d9; border-radius: 3px; }
+QComboBox { padding: 2px 6px; min-height: 20px; }
+QCheckBox { spacing: 6px; }
+QFormLayout { spacing: 8px; }
 """
 
 LIGHT_THEME = _COMMON + """

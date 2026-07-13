@@ -28,6 +28,14 @@ Built with Python and PySide6 (Qt).
 - **You are in control of pages.** Imported pages stay permanently in the
   sidebar. The active page changes only when *you* click, press a shortcut
   or say a voice command — the software never switches pages by itself.
+- **Sidebar order is processing order.** Drag pages to reorder them;
+  reading and export always follow exactly the order shown. Multi-select
+  with Ctrl+Click / Shift+Click / Ctrl+A turns *Read Current Page* into
+  *Read Selected Pages (N)*.
+- **One document, if you want it.** In Append output mode (the default,
+  Settings > Reading) every page you read joins one continuous document in
+  the editor — page after page, in order, with optional "— Page N —"
+  markers. Switch to Replace mode to keep content on each page separately.
 - **Pluggable engines.** OCR (Tesseract / EasyOCR / PaddleOCR) and AI vision
   (Claude / OpenAI / Gemini / local models) are interchangeable backends
   behind stable interfaces; the app depends on none of them specifically.
@@ -61,9 +69,17 @@ Import 50 screenshots  →  select Page 1  →  Read Current Page
 Or hands-off:
 
 ```
-Import 50 screenshots  →  Read All Pages  →  watch the progress bar
-→  review/correct any page  →  Export one combined DOCX / PDF in page order
+Import 50 screenshots  →  (drag to reorder if needed)  →  Read All Pages
+→  watch "Page 3 of 50" progress, Cancel any time
+→  one continuous document builds up in the editor
+→  review/correct  →  Export DOCX / PDF
 ```
+
+Reading settings (Settings > Reading): output mode (append/replace), auto
+read after import, page separators, continue after error, ignore decorative
+underlines, ignore watermarks. Transient API failures (rate limits, network
+hiccups) are retried automatically with backoff, and the project is
+snapshotted after every completed page so a crash can never lose a batch.
 
 ## Voice commands
 

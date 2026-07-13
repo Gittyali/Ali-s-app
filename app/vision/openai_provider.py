@@ -46,7 +46,14 @@ class OpenAIVisionProvider(VisionProvider):
             headers["Authorization"] = f"Bearer {self._api_key}"
         return headers
 
-    def read_page(self, image: Image.Image, ocr_hint: str = "") -> str:
+    def read_page(
+        self,
+        image: Image.Image,
+        ocr_hint: str = "",
+        *,
+        ignore_underlines: bool = True,
+        ignore_watermarks: bool = True,
+    ) -> str:
         if not self.is_configured():
             raise VisionProviderError(
                 f"{self.display_name} is not configured. "
@@ -63,7 +70,12 @@ class OpenAIVisionProvider(VisionProvider):
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": data_url}},
-                        {"type": "text", "text": build_user_prompt(ocr_hint)},
+                        {
+                            "type": "text",
+                            "text": build_user_prompt(
+                                ocr_hint, ignore_underlines, ignore_watermarks
+                            ),
+                        },
                     ],
                 },
             ],

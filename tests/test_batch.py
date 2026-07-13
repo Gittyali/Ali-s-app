@@ -201,9 +201,11 @@ class TestNoiseFiltering:
         assert "watermark" not in text
 
     def test_prompt_ignores_decoration(self) -> None:
-        from app.vision.prompts import READ_PAGE_INSTRUCTIONS
+        from app.vision.prompts import build_user_prompt
 
-        lowered = READ_PAGE_INSTRUCTIONS.lower()
+        lowered = build_user_prompt(
+            ignore_underlines=True, ignore_watermarks=True
+        ).lower()
         assert "watermark" in lowered
         assert "highlight" in lowered
         assert "decorative" in lowered

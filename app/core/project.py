@@ -104,6 +104,25 @@ class Project:
                 return index
         return -1
 
+    def reorder(self, ordered_page_ids: list[str]) -> bool:
+        """Reorder pages to match *ordered_page_ids* (drag-and-drop).
+
+        The id list must be a permutation of the current pages; anything
+        else is rejected (returns False) so a buggy drop can never lose a
+        page.  Processing and export always follow this order.
+        """
+        by_id = {page.page_id: page for page in self.pages}
+        if sorted(ordered_page_ids) != sorted(by_id):
+            logger.warning("Rejected reorder: id list is not a permutation")
+            return False
+        new_order = [by_id[page_id] for page_id in ordered_page_ids]
+        if new_order == self.pages:
+            return True
+        self.pages = new_order
+        self.mark_modified()
+        logger.info("Pages reordered (%d pages)", len(new_order))
+        return True
+
     # --------------------------------------------------------------- save
     def to_dict(self) -> dict[str, Any]:
         pages: list[dict[str, Any]] = []
