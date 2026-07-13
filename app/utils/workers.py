@@ -44,7 +44,11 @@ class Worker(QRunnable):
         self._args = args
         self._kwargs = kwargs
         self.signals = WorkerSignals()
-        self.setAutoDelete(True)
+        # Lifetime is managed by the _active_workers registry below: the
+        # thread pool must NOT delete the runnable when run() returns,
+        # because queued signal deliveries may still be pending and the
+        # signals object must only be destroyed on its own (main) thread.
+        self.setAutoDelete(False)
 
     @Slot()
     def run(self) -> None:  # noqa: D102 - QRunnable entry point
@@ -66,6 +70,12 @@ class Worker(QRunnable):
             self.signals.finished.emit()
 
 
+# Strong references to in-flight workers. Entries are removed on the main
+# thread once ``finished`` has been delivered (it is always the last signal),
+# so the WorkerSignals QObject is destroyed on the thread it belongs to.
+_active_workers: set[Worker] = set()
+
+
 def run_in_background(
     fn: Callable[..., Any],
     *args: Any,
@@ -85,5 +95,8 @@ def run_in_background(
         worker.signals.progress.connect(on_progress)
     if on_finished is not None:
         worker.signals.finished.connect(on_finished)
+
+    _active_workers.add(worker)
+    worker.signals.finished.connect(lambda: _active_workers.discard(worker))
     QThreadPool.globalInstance().start(worker)
     return worker
