@@ -1,0 +1,20 @@
+# ---- Core (required) -------------------------------------------------------
+PySide6>=6.6            # Qt UI framework
+Pillow>=10.0            # Image loading / enhancement
+numpy>=1.24             # Image processing support
+PyMuPDF>=1.23           # PDF import (page rendering)
+python-docx>=1.1        # DOCX export
+
+# ---- OCR engines (install at least one) ------------------------------------
+pytesseract>=0.3.10     # Tesseract wrapper (requires the Tesseract binary,
+                        # https://github.com/UB-Mannheim/tesseract/wiki on Windows)
+# easyocr>=1.7          # Optional: EasyOCR (large download, GPU optional)
+# paddleocr>=2.7        # Optional: PaddleOCR (requires paddlepaddle)
+
+# ---- AI Vision providers (optional, choose any) ----------------------------
+requests>=2.31          # HTTP client used by all cloud vision providers
+
+# ---- Speech / dictation (optional) -----------------------------------------
+sounddevice>=0.4.6      # Microphone capture
+vosk>=0.3.45            # Offline streaming speech recognition
+# SpeechRecognition>=3.10  # Optional: Google Web Speech backend
