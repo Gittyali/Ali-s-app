@@ -18,6 +18,7 @@ from PySide6.QtGui import (
     QTextCharFormat,
     QTextCursor,
     QTextListFormat,
+    QTextOption,
 )
 from PySide6.QtWidgets import (
     QComboBox,
@@ -59,6 +60,10 @@ class DocumentEditor(QWidget):
         self._edit = QTextEdit(self)
         self._edit.setAcceptRichText(True)
         self._edit.setUndoRedoEnabled(True)
+        # Word wrap: break long lines at word boundaries within the widget
+        # width so text never requires horizontal scrolling.
+        self._edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self._edit.setWordWrapMode(QTextOption.WrapMode.WordWrap)
         default_font = QFont("Calibri", int(BODY_POINT_SIZE))
         self._edit.document().setDefaultFont(default_font)
         self._edit.textChanged.connect(self.content_edited)

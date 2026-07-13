@@ -22,9 +22,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QSplitter,
     QStatusBar,
     QToolBar,
+    QToolButton,
     QWidget,
 )
 
@@ -35,7 +37,12 @@ from app.core.autosave import (
     clear_snapshot_file,
     find_recoverable_snapshot,
 )
-from app.core.controller import AppController, ReadOutcome
+from app.core.controller import (
+    AppController,
+    BatchSummary,
+    PageReadSpec,
+    ReadOutcome,
+)
 from app.core.page import PageStatus
 from app.core.project import Project, ProjectError
 from app.export import export_docx, export_pdf
@@ -108,6 +115,7 @@ class MainWindow(QMainWindow):
         self._action_save_project = QAction("Save", self)
         self._action_import = QAction("Import Pages…", self)
         self._action_read_page = QAction("Read Current Page", self)
+        self._action_read_all = QAction("Read All Pages", self)
         self._action_dictate = QAction("Start Dictation", self)
         self._action_dictate.setCheckable(True)
         self._action_prev_page = QAction("Previous Page", self)
@@ -121,6 +129,7 @@ class MainWindow(QMainWindow):
         self._action_save_project.triggered.connect(self._save_project)
         self._action_import.triggered.connect(self._import_pages)
         self._action_read_page.triggered.connect(self._read_current_page)
+        self._action_read_all.triggered.connect(self._read_all_pages)
         self._action_dictate.triggered.connect(self._toggle_dictation)
         self._action_prev_page.triggered.connect(lambda: self._navigate_relative(-1))
         self._action_next_page.triggered.connect(lambda: self._navigate_relative(1))
@@ -142,6 +151,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._action_import)
         toolbar.addSeparator()
         toolbar.addAction(self._action_read_page)
+        toolbar.addAction(self._action_read_all)
         toolbar.addAction(self._action_dictate)
         toolbar.addSeparator()
         toolbar.addAction(self._action_prev_page)
@@ -158,8 +168,24 @@ class MainWindow(QMainWindow):
         self._status_page = QLabel("No project")
         self._status_job = QLabel("")
         self._status_dictation = QLabel("")
+
+        # Batch progress: "Reading page X of N" + bar + cancel; hidden when idle.
+        self._batch_progress_bar = QProgressBar(self)
+        self._batch_progress_bar.setFixedWidth(220)
+        self._batch_progress_bar.setTextVisible(True)
+        self._batch_progress_bar.hide()
+        self._batch_cancel_button = QToolButton(self)
+        self._batch_cancel_button.setText("Cancel")
+        self._batch_cancel_button.setToolTip(
+            "Stop Read All Pages after the current page finishes"
+        )
+        self._batch_cancel_button.clicked.connect(self._cancel_batch)
+        self._batch_cancel_button.hide()
+
         bar.addWidget(self._status_page)
         bar.addWidget(self._status_job, stretch=1)
+        bar.addPermanentWidget(self._batch_progress_bar)
+        bar.addPermanentWidget(self._batch_cancel_button)
         bar.addPermanentWidget(self._status_dictation)
         self.setStatusBar(bar)
 
@@ -176,6 +202,10 @@ class MainWindow(QMainWindow):
         self._controller.read_progress.connect(
             lambda _pid, stage: self._status_job.setText(stage)
         )
+        self._controller.batch_started.connect(self._on_batch_started)
+        self._controller.batch_progress.connect(self._on_batch_progress)
+        self._controller.batch_page_failed.connect(self._on_batch_page_failed)
+        self._controller.batch_finished.connect(self._on_batch_finished)
 
         self._dictation.partial_text.connect(self._on_dictation_partial)
         self._dictation.final_text.connect(self._on_dictation_final)
@@ -193,6 +223,7 @@ class MainWindow(QMainWindow):
         mapping = {
             "import_pages": self._action_import,
             "read_current_page": self._action_read_page,
+            "read_all_pages": self._action_read_all,
             "toggle_dictation": self._action_dictate,
             "next_page": self._action_next_page,
             "previous_page": self._action_prev_page,
@@ -215,16 +246,20 @@ class MainWindow(QMainWindow):
         has_project = self._project is not None
         has_page = bool(self._active_page_id)
         has_pages = has_project and bool(self._project.pages)
+        batch_running = self._controller.is_batch_active
+        self._action_new_project.setEnabled(not batch_running)
+        self._action_open_project.setEnabled(not batch_running)
         self._action_save_project.setEnabled(has_project)
-        self._action_import.setEnabled(has_project)
+        self._action_import.setEnabled(has_project and not batch_running)
         self._action_read_page.setEnabled(
             has_page and not self._controller.is_page_busy(self._active_page_id)
         )
+        self._action_read_all.setEnabled(has_pages and not batch_running)
         self._action_dictate.setEnabled(has_page)
         self._action_prev_page.setEnabled(has_pages)
         self._action_next_page.setEnabled(has_pages)
-        self._action_export_docx.setEnabled(has_pages)
-        self._action_export_pdf.setEnabled(has_pages)
+        self._action_export_docx.setEnabled(has_pages and not batch_running)
+        self._action_export_pdf.setEnabled(has_pages and not batch_running)
         self._editor.set_editor_enabled(has_page)
 
     # ----------------------------------------------------- project lifecycle
@@ -584,6 +619,131 @@ class MainWindow(QMainWindow):
         self._show_error("Could not read page", message)
         self._update_action_states()
 
+    # ------------------------------------------------------ Read All Pages
+    def _read_all_pages(self) -> None:
+        """Read every imported page sequentially, in page order."""
+        if self._project is None or not self._project.pages:
+            return
+        if self._controller.is_batch_active:
+            return
+        self._persist_active_document()
+
+        unread = [
+            page
+            for page in self._project.pages
+            if not page.document_html.strip()
+        ]
+        box = QMessageBox(self)
+        box.setWindowTitle("Read All Pages")
+        box.setText(
+            f"This project has {len(self._project.pages)} pages "
+            f"({len(unread)} without content yet).\n\n"
+            "Each page is read in order with the configured AI provider "
+            "(or OCR) and its content is placed on that page; exporting "
+            "then produces one combined document in page order."
+        )
+        all_button = box.addButton("Read all pages", QMessageBox.ButtonRole.AcceptRole)
+        unread_button = box.addButton(
+            "Only unread pages", QMessageBox.ButtonRole.AcceptRole
+        )
+        unread_button.setEnabled(bool(unread))
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is all_button:
+            targets = list(self._project.pages)
+        elif clicked is unread_button:
+            targets = unread
+        else:
+            return
+        if not targets:
+            return
+
+        specs = [
+            PageReadSpec(
+                page_id=page.page_id,
+                image_path=page.image_path,
+                rotation=page.rotation,
+                brightness=page.brightness,
+                contrast=page.contrast,
+                enhanced=page.enhanced,
+                label=f"Page {self._project.page_index(page.page_id) + 1}",
+            )
+            for page in targets
+        ]
+        self._controller.read_all_pages(specs)
+
+    def _cancel_batch(self) -> None:
+        self._controller.cancel_batch()
+        self._batch_cancel_button.setEnabled(False)
+        self._status_job.setText("Cancelling after the current page…")
+
+    def _on_batch_started(self, total: int) -> None:
+        self._batch_progress_bar.setRange(0, total)
+        self._batch_progress_bar.setValue(0)
+        self._batch_progress_bar.show()
+        self._batch_cancel_button.setEnabled(True)
+        self._batch_cancel_button.show()
+        self._status_job.setText(f"Reading {total} pages…")
+        self._update_action_states()
+
+    def _on_batch_progress(self, current: int, total: int, page_id: str) -> None:
+        self._batch_progress_bar.setValue(current - 1)
+        self._batch_progress_bar.setFormat(f"Page {current} of {total}")
+        label = ""
+        if self._project is not None:
+            index = self._project.page_index(page_id)
+            if index >= 0:
+                label = f" (Page {index + 1})"
+        self._status_job.setText(f"Reading page {current} of {total}{label}…")
+        self._set_page_status(page_id, PageStatus.PROCESSING)
+
+    def _on_batch_page_failed(self, page_id: str, message: str) -> None:
+        # Failures are collected in the summary; here we only reset the
+        # sidebar marker so the page shows as still pending.
+        self._set_page_status(page_id, PageStatus.PENDING)
+        logger.warning("Batch page failed (%s): %s", page_id, message)
+
+    def _on_batch_finished(self, summary: BatchSummary) -> None:
+        self._batch_progress_bar.hide()
+        self._batch_cancel_button.hide()
+        self._update_action_states()
+        self._autosave.flush()  # a lot of new content; snapshot it now
+
+        if summary.total == 0 and summary.failures:
+            self._status_job.setText("Read All Pages failed")
+            self._show_error("Read All Pages failed", summary.failures[0][1])
+            return
+
+        state = "cancelled" if summary.cancelled else "complete"
+        self._status_job.setText(
+            f"Read All Pages {state}: {summary.succeeded} of {summary.total} "
+            "pages read"
+        )
+        if summary.failures:
+            detail = "\n".join(
+                f"• {label}: {message}" for label, message in summary.failures[:10]
+            )
+            if len(summary.failures) > 10:
+                detail += f"\n… and {len(summary.failures) - 10} more"
+            QMessageBox.warning(
+                self,
+                "Read All Pages finished with problems",
+                f"{summary.succeeded} of {summary.total} pages were read "
+                f"successfully. These pages failed and were skipped:\n\n{detail}\n\n"
+                "You can fix the cause (see Settings) and run Read All Pages "
+                "again with 'Only unread pages'.",
+            )
+        elif not summary.cancelled:
+            QMessageBox.information(
+                self,
+                "Read All Pages complete",
+                f"All {summary.succeeded} pages were read successfully.\n\n"
+                "Review each page in the editor, then use Export DOCX/PDF to "
+                "produce the combined document.",
+            )
+
     # ------------------------------------------------------------ dictation
     def _toggle_dictation(self) -> None:
         if self._dictation.is_active:
@@ -669,6 +829,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         if self._dictation.is_active:
             self._dictation.stop()
+        if self._controller.is_batch_active:
+            self._controller.cancel_batch()
         self._persist_active_document()
         if self._project is not None and self._project.modified:
             answer = QMessageBox.question(

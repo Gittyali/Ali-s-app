@@ -10,10 +10,14 @@ Built with Python and PySide6 (Qt).
 
 1. **Import** any number of pages — images (PNG, JPEG, BMP, TIFF), PDFs and
    scanned documents. 1 page or 500; the only limit is system memory.
-2. **Read** the selected page with *Read Current Page*: the app runs OCR
-   and (optionally) an AI vision model to reconstruct the document —
-   headings, subheadings, paragraphs, lists, tables, footnotes, numbers and
-   legal citations — not just raw text.
+2. **Read** the selected page with *Read Current Page*, or the whole
+   project with *Read All Pages* (Ctrl+Shift+R): the app runs OCR and
+   (optionally) an AI vision model to reconstruct the document — headings,
+   subheadings, paragraphs, lists, tables, footnotes, numbers and legal
+   citations — not just raw text. Watermarks, highlighter marks and
+   decorative underlines are ignored. *Read All Pages* processes pages
+   sequentially in order with a progress bar and Cancel button; a failing
+   page is skipped and reported while the batch continues.
 3. **Correct** the result in a rich text editor by keyboard or by voice,
    including live dictation in English, Urdu and Roman Urdu with spoken
    formatting commands ("heading", "bold", "new paragraph", "go to page 15").
@@ -52,6 +56,13 @@ provider setup).
 Import 50 screenshots  →  select Page 1  →  Read Current Page
 →  content appears in the editor  →  fix mistakes by voice or keyboard
 →  click Page 2  →  repeat  →  Export DOCX / PDF
+```
+
+Or hands-off:
+
+```
+Import 50 screenshots  →  Read All Pages  →  watch the progress bar
+→  review/correct any page  →  Export one combined DOCX / PDF in page order
 ```
 
 ## Voice commands

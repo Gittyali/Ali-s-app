@@ -26,6 +26,14 @@ exactly as it appears:
 - Transcribe footnotes at the end as `[^1]: text`.
 - Preserve all numbers, dates, amounts and legal citations exactly as written.
 - Keep the original language(s) of the text; do not translate.
+- IGNORE decorative elements entirely: watermarks, background stamps, page
+  borders, ruled/notebook lines, and scanner artifacts must NOT appear in
+  the output.
+- Do NOT mark text as underlined just because a decorative rule, form line
+  or highlight passes under it; use <u>...</u> only for genuinely
+  underlined words in the original typography.
+- Ignore highlighting/marker colour over text: transcribe the text itself
+  with no special formatting for the highlight.
 - Output ONLY the Markdown transcription: no commentary, no code fences.
 """
 

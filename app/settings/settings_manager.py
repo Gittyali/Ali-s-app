@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_SHORTCUTS: dict[str, str] = {
     "import_pages": "Ctrl+I",
     "read_current_page": "Ctrl+R",
+    "read_all_pages": "Ctrl+Shift+R",
     "toggle_dictation": "Ctrl+D",
     "next_page": "Ctrl+Right",
     "previous_page": "Ctrl+Left",
@@ -36,6 +37,7 @@ DEFAULT_SHORTCUTS: dict[str, str] = {
 SHORTCUT_LABELS: dict[str, str] = {
     "import_pages": "Import Pages",
     "read_current_page": "Read Current Page",
+    "read_all_pages": "Read All Pages",
     "toggle_dictation": "Start/Stop Dictation",
     "next_page": "Next Page",
     "previous_page": "Previous Page",

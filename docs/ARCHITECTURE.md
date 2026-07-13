@@ -45,6 +45,20 @@ Rules that keep the graph clean:
    `formatting.rich_text` **only if that page is still active** — otherwise
    the content is stored directly on its page. Reading never switches pages.
 
+## The batch pipeline (Read All Pages)
+
+`AppController.read_all_pages(list[PageReadSpec])` runs one worker that
+loops over the pages **sequentially and in page order**. Each spec carries
+the page's stored view adjustments, so the batch reads exactly what the
+user would see. Per page it reuses the same `_recognize` core as single
+reads and emits the result through the same `read_finished` signal, so
+storage and UI handling are shared. A failing page emits
+`batch_page_failed` and the loop continues; `cancel_batch()` sets a
+`threading.Event` checked between pages, so cancellation takes effect after
+the page currently in flight. `batch_finished` delivers a `BatchSummary`
+(succeeded/failures/cancelled) that the main window turns into a report
+dialog, and an autosave snapshot is flushed immediately after the batch.
+
 ## The dictation pipeline
 
 ```

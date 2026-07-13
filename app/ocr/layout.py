@@ -30,6 +30,10 @@ _BULLET_MARKER_RE = re.compile(r"^\s*[•▪◦‣●○*·—-]\s+(.+)$")
 _NUMBERED_MARKER_RE = re.compile(r"^\s*(\d{1,3})[.)]\s+(.+)$")
 _FOOTNOTE_RE = re.compile(r"^\s*(\*|\d{1,2}[.)]?)\s+\S")
 
+# Lines below this mean confidence are treated as noise (watermarks, stamps,
+# scanner artifacts, bleed-through) and excluded from the document.
+_MIN_LINE_CONFIDENCE = 0.35
+
 # A line is "large" (heading candidate) when its height exceeds the page
 # median by this factor.
 _HEADING_HEIGHT_RATIO = 1.25
@@ -94,6 +98,11 @@ def _classify_lines(result: OCRResult) -> list[_Classified]:
     for line in result.lines:
         text = line.text.strip()
         if not text:
+            continue
+        if line.confidence < _MIN_LINE_CONFIDENCE:
+            # Watermarks, stamps and bleed-through recognise as garbled,
+            # low-confidence lines; dropping them keeps the document clean.
+            logger.debug("Dropping low-confidence line: %r", text[:50])
             continue
         gap = 0.0
         if previous_bottom is not None and median_height > 0:
