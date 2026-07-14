@@ -180,6 +180,20 @@ class SettingsManager(QObject):
     def ignore_watermarks(self, value: bool) -> None:
         self._set("reading/ignore_watermarks", bool(value))
 
+    @property
+    def ocr_fallback_when_ai_fails(self) -> bool:
+        """Use plain OCR when the AI provider fails on a page.
+
+        Off by default: with an AI provider selected, a failed page should
+        be reported and retried — silent OCR fallback yields garbage on
+        watermarked scans and hides the problem.
+        """
+        return self._get_bool("reading/ocr_fallback_when_ai_fails", False)
+
+    @ocr_fallback_when_ai_fails.setter
+    def ocr_fallback_when_ai_fails(self, value: bool) -> None:
+        self._set("reading/ocr_fallback_when_ai_fails", bool(value))
+
     # ------------------------------------------------------------------ ocr
     @property
     def ocr_engine(self) -> str:

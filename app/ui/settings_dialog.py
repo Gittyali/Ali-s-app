@@ -153,6 +153,12 @@ class SettingsDialog(QDialog):
         self._watermarks_check.setChecked(self._settings.ignore_watermarks)
         form.addRow("Watermarks:", self._watermarks_check)
 
+        self._ocr_fallback_check = QCheckBox(
+            "Fall back to plain OCR when AI reading fails (may reduce quality)"
+        )
+        self._ocr_fallback_check.setChecked(self._settings.ocr_fallback_when_ai_fails)
+        form.addRow("AI failure:", self._ocr_fallback_check)
+
         form.addRow(
             QLabel(
                 "Append mode collects every page you read into one continuous "
@@ -301,6 +307,7 @@ class SettingsDialog(QDialog):
         settings.continue_after_error = self._continue_check.isChecked()
         settings.ignore_decorative_underlines = self._underlines_check.isChecked()
         settings.ignore_watermarks = self._watermarks_check.isChecked()
+        settings.ocr_fallback_when_ai_fails = self._ocr_fallback_check.isChecked()
 
         settings.ocr_engine = str(self._ocr_box.currentData())
         settings.ocr_languages = self._ocr_languages.text().strip() or "eng"

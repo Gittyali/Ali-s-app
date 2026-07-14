@@ -21,6 +21,7 @@ class PageStatus(Enum):
     PROCESSING = "processing"  # OCR / AI reading in progress
     READ = "read"  # has recognised content
     EDITED = "edited"  # user modified the content
+    FAILED = "failed"  # last read attempt failed; retry candidate
 
 
 @dataclass

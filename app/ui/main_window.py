@@ -885,7 +885,7 @@ class MainWindow(QMainWindow):
             )
 
     def _on_read_failed(self, page_id: str, message: str) -> None:
-        self._set_page_status(page_id, PageStatus.PENDING)
+        self._set_page_status(page_id, PageStatus.FAILED)
         self._hide_single_read_progress()
         self._status_job.setText("Reading failed")
         self._show_error("Could not read page", message)
@@ -900,25 +900,26 @@ class MainWindow(QMainWindow):
             return
         self._persist_active_document()
 
-        # "Unread" is tracked by workflow status, not stored content — in
-        # append mode only the host page carries the combined document.
+        # "Unread" is tracked by workflow status (pending or failed), not
+        # stored content — in append mode only the host page carries the
+        # combined document.
         unread = [
             page
             for page in self._project.pages
-            if page.status is PageStatus.PENDING
+            if page.status in (PageStatus.PENDING, PageStatus.FAILED)
         ]
         box = QMessageBox(self)
         box.setWindowTitle("Read All Pages")
         box.setText(
             f"This project has {len(self._project.pages)} pages "
-            f"({len(unread)} without content yet).\n\n"
+            f"({len(unread)} unread or failed).\n\n"
             "Each page is read in order with the configured AI provider "
-            "(or OCR) and its content is placed on that page; exporting "
-            "then produces one combined document in page order."
+            "(or OCR). Failed pages are marked ✗ in the sidebar and can be "
+            "retried with 'Only unread/failed pages'."
         )
         all_button = box.addButton("Read all pages", QMessageBox.ButtonRole.AcceptRole)
         unread_button = box.addButton(
-            "Only unread pages", QMessageBox.ButtonRole.AcceptRole
+            "Only unread/failed pages", QMessageBox.ButtonRole.AcceptRole
         )
         unread_button.setEnabled(bool(unread))
         box.addButton(QMessageBox.StandardButton.Cancel)
@@ -987,9 +988,9 @@ class MainWindow(QMainWindow):
         self._set_page_status(page_id, PageStatus.PROCESSING)
 
     def _on_batch_page_failed(self, page_id: str, message: str) -> None:
-        # Failures are collected in the summary; here we only reset the
-        # sidebar marker so the page shows as still pending.
-        self._set_page_status(page_id, PageStatus.PENDING)
+        # Failures are collected in the summary; the sidebar marks the page
+        # with ✗ so it is visibly a retry candidate, not silently blank.
+        self._set_page_status(page_id, PageStatus.FAILED)
         logger.warning("Batch page failed (%s): %s", page_id, message)
 
     def _on_batch_finished(self, summary: BatchSummary) -> None:
@@ -1021,8 +1022,9 @@ class MainWindow(QMainWindow):
                 f"{summary.succeeded} completed\n"
                 f"{len(summary.failures)} failed\n\nFailed pages (skipped):\n"
                 f"{detail}\n\n"
-                "You can fix the cause (see Settings) and read the failed "
-                "pages again — e.g. Read All Pages > 'Only unread pages'.",
+                "Failed pages are marked ✗ in the sidebar. Fix the cause "
+                "(network, rate limit, API key — see Settings), then run "
+                "Read All Pages > 'Only unread/failed pages' to retry them.",
             )
         elif not summary.cancelled:
             QMessageBox.information(

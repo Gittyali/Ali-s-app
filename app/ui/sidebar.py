@@ -47,6 +47,7 @@ _STATUS_MARKS = {
     PageStatus.PROCESSING: " ⏳",
     PageStatus.READ: " ✓",
     PageStatus.EDITED: " ✎",
+    PageStatus.FAILED: " ✗",
 }
 
 

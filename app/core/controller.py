@@ -45,7 +45,7 @@ _TRANSIENT_MARKERS = (
     "overloaded",
     "connection",
 )
-_MAX_PROVIDER_ATTEMPTS = 3
+_MAX_PROVIDER_ATTEMPTS = 4
 _RETRY_BASE_DELAY_SECONDS = 2.0
 
 
@@ -151,6 +151,7 @@ class AppController(QObject):
             "ignore_underlines": self._settings.ignore_decorative_underlines,
             "ignore_watermarks": self._settings.ignore_watermarks,
             "continue_after_error": self._settings.continue_after_error,
+            "ocr_fallback": self._settings.ocr_fallback_when_ai_fails,
         }
 
     # ------------------------------------------------------- single page
@@ -197,7 +198,7 @@ class AppController(QObject):
                 transient = _is_transient_provider_error(str(exc))
                 if not transient or attempt >= _MAX_PROVIDER_ATTEMPTS:
                     raise
-                delay = _RETRY_BASE_DELAY_SECONDS * attempt
+                delay = _RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
                 logger.warning(
                     "Transient provider error for page %s (attempt %d/%d), "
                     "retrying in %.0fs: %s",
@@ -252,8 +253,13 @@ class AppController(QObject):
             logger.warning("OCR unavailable/failed for page %s: %s", page_id, exc)
 
         # Preferred path: AI reconstruction with the OCR text as a hint.
+        # When the AI fails, the page FAILS (visible, retryable) — silent
+        # OCR fallback is opt-in, because on watermarked scans it swaps
+        # good AI text for garbage without the user noticing.
         if provider is not None:
             report("Asking the AI to reconstruct the page…")
+            allow_fallback = bool(settings_snapshot.get("ocr_fallback", False))
+            failure: str = ""
             try:
                 hint = ocr_result.text if ocr_result is not None else ""
                 markdown = self._call_provider_with_retry(
@@ -263,18 +269,20 @@ class AppController(QObject):
                 if not document.is_empty():
                     return ReadOutcome(page_id, document, used_ai=True)
                 logger.warning("AI returned an empty document for page %s", page_id)
+                failure = "The AI returned no text for this page."
             except VisionProviderError as exc:
                 logger.warning("Vision provider failed for page %s: %s", page_id, exc)
-                if ocr_result is not None:
-                    return ReadOutcome(
-                        page_id,
-                        reconstruct_document(ocr_result, filter_noise=filter_noise),
-                        warning=f"AI reading failed ({exc}); used OCR instead.",
-                    )
-                raise RuntimeError(
-                    f"AI reading failed: {exc}"
-                    + (f" OCR also failed: {ocr_error}" if ocr_error else "")
-                ) from exc
+                failure = f"AI reading failed: {exc}"
+            if allow_fallback and ocr_result is not None:
+                return ReadOutcome(
+                    page_id,
+                    reconstruct_document(ocr_result, filter_noise=filter_noise),
+                    warning=f"{failure} Used OCR instead (Settings > Reading).",
+                )
+            raise RuntimeError(
+                failure + " The page is marked failed — read it again once "
+                "the problem (network, rate limit, API key) is resolved."
+            )
 
         # OCR-only path.
         if ocr_result is None:
