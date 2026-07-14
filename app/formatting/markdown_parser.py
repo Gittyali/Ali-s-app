@@ -73,6 +73,27 @@ def _split_table_row(line: str) -> list[str]:
     return [cell.strip() for cell in inner.split("|")]
 
 
+def _looks_like_numbered_heading(remainder: str) -> bool:
+    """True when a numbered line reads as a section heading.
+
+    AI providers are inconsistent: the same document yields both
+    ``## 13. POWERS OF AUDITOR:`` and a bare ``2. RELVANT PROVISION:``.
+    Treating title-cased/uppercase/colon-terminated numbered lines as
+    headings keeps every section bold and sized the same way.
+    """
+    stripped = remainder.strip()
+    if not stripped or len(stripped) > 90 or len(stripped.split()) > 12:
+        return False
+    if stripped.endswith((".", ",", ";")):
+        return False
+    if stripped.endswith(":"):
+        return True
+    letters = [c for c in stripped if c.isalpha()]
+    if not letters:
+        return False
+    return sum(1 for c in letters if c.isupper()) / len(letters) >= 0.7
+
+
 def parse_markdown(markdown: str) -> StructuredDocument:
     """Parse *markdown* into a structured document."""
     blocks: list[Block] = []
@@ -115,6 +136,18 @@ def parse_markdown(markdown: str) -> StructuredDocument:
             continue
 
         first_numbered = _NUMBERED_RE.match(stripped)
+        if first_numbered and _looks_like_numbered_heading(first_numbered.group(2)):
+            # "17. REMOVAL OF AUDITOR:" is a section heading with its
+            # number kept — not a list item silently renumbered from 1.
+            blocks.append(
+                ParagraphBlock(
+                    block_type=BlockType.SUBHEADING,
+                    spans=parse_inline(stripped),
+                    level=2,
+                )
+            )
+            index += 1
+            continue
         if first_numbered:
             # Preserve the document's own numbering: a list starting at
             # "4." must not render as "1.".
@@ -191,6 +224,17 @@ def parse_markdown(markdown: str) -> StructuredDocument:
             ParagraphBlock(
                 block_type=BlockType.PARAGRAPH,
                 spans=parse_inline(" ".join(paragraph_lines)),
+            )
+        )
+
+    # Safety net: never silently drop a page. If nothing parsed but the
+    # model returned text, keep it verbatim as a paragraph.
+    if not blocks and markdown.strip():
+        logger.warning("Markdown parse produced no blocks; keeping raw text")
+        blocks.append(
+            ParagraphBlock(
+                block_type=BlockType.PARAGRAPH,
+                spans=[InlineSpan(text=markdown.strip())],
             )
         )
 

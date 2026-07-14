@@ -84,6 +84,11 @@ class MainWindow(QMainWindow):
         # batch. Pinned at batch start so mid-batch navigation cannot split
         # the output across pages.
         self._append_host_page_id: str = ""
+        # The page whose document the editor currently holds. In replace
+        # mode this equals the active page; in append mode it is the host
+        # page — the combined document stays visible on every page and
+        # clicking a page scrolls to its section.
+        self._editor_page_id: str = ""
 
         self.setWindowTitle(f"{__app_name__} {__version__}")
         self.resize(1400, 860)
@@ -444,6 +449,8 @@ class MainWindow(QMainWindow):
     def _set_project(self, project: Project) -> None:
         self._project = project
         self._active_page_id = ""
+        self._editor_page_id = ""
+        self._append_host_page_id = ""
         self._settings.last_project_path = str(project.directory)
         self._autosave.watch(project, self._settings.autosave_interval_minutes)
         self._refresh_sidebar()
@@ -611,6 +618,29 @@ class MainWindow(QMainWindow):
         elif kind == "goto":
             self._navigate_to_number(number)
 
+    def _document_host_for(self, page_id: str) -> str:
+        """Which page's document the editor should show for *page_id*.
+
+        Replace mode: the page itself.  Append mode: the page hosting the
+        combined document, so every sidebar click keeps the full result
+        visible.  Legacy projects saved before the host id existed derive
+        it when exactly one page carries content.
+        """
+        if self._project is None or self._settings.output_mode != "append":
+            return page_id
+        host = self._project.host_page_id
+        if host:
+            index = self._project.page_index(host)
+            if index >= 0 and self._project.pages[index].document_html.strip():
+                return host
+        pages_with_content = [
+            page for page in self._project.pages if page.document_html.strip()
+        ]
+        if len(pages_with_content) == 1:
+            self._project.host_page_id = pages_with_content[0].page_id
+            return self._project.host_page_id
+        return page_id
+
     def _activate_page(self, page_id: str) -> None:
         """Make *page_id* the active page (explicit user intent only)."""
         if self._project is None:
@@ -628,7 +658,15 @@ class MainWindow(QMainWindow):
             page.contrast,
             page.enhanced,
         )
-        self._editor.set_html(page.document_html)
+        host_id = self._document_host_for(page_id)
+        if host_id != self._editor_page_id:
+            host_index = self._project.page_index(host_id)
+            if host_index >= 0:
+                self._editor.set_html(self._project.pages[host_index].document_html)
+                self._editor_page_id = host_id
+        if host_id != page_id:
+            # Combined document: jump to this page's section.
+            self._editor.scroll_to_anchor(f"page-{page_id}")
         self._status_page.setText(
             f"Page {index + 1} of {len(self._project.pages)}"
             + (f" — {page.source_name}" if page.source_name else "")
@@ -636,31 +674,31 @@ class MainWindow(QMainWindow):
         self._update_action_states()
 
     def _reload_active_page(self) -> None:
-        if self._project is None or not self._active_page_id:
+        if self._project is None or not self._editor_page_id:
             return
-        index = self._project.page_index(self._active_page_id)
+        index = self._project.page_index(self._editor_page_id)
         if index >= 0:
             self._editor.set_html(self._project.pages[index].document_html)
 
     def _persist_active_document(self) -> None:
-        """Write the editor's content back to the active page in memory."""
-        if self._project is None or not self._active_page_id:
+        """Write the editor's content back to the page it belongs to."""
+        if self._project is None or not self._editor_page_id:
             return
-        index = self._project.page_index(self._active_page_id)
+        index = self._project.page_index(self._editor_page_id)
         if index < 0:
             return
         page = self._project.pages[index]
         html = "" if self._editor.is_empty() else self._editor.to_html()
         if html != page.document_html:
             self._project.set_page_document(
-                self._active_page_id, html, edited_by_user=True
+                self._editor_page_id, html, edited_by_user=True
             )
             self._sidebar.update_page_status(index, page)
 
     def _on_content_edited(self) -> None:
         # Content is persisted lazily (on page switch / save / export); here
         # we only mark the project dirty so autosave picks it up.
-        if self._project is not None and self._active_page_id:
+        if self._project is not None and self._editor_page_id:
             self._project.mark_modified()
 
     def _on_adjustments_changed(
@@ -697,6 +735,8 @@ class MainWindow(QMainWindow):
         if page_id == self._active_page_id:
             self._active_page_id = ""
             self._viewer.clear()
+        if page_id == self._editor_page_id:
+            self._editor_page_id = ""
             self._editor.set_html("")
         self._finish_import()
 
@@ -789,9 +829,11 @@ class MainWindow(QMainWindow):
 
     def _append_outcome(self, outcome: ReadOutcome, page_index: int) -> None:
         """Append mode: every page joins ONE continuous document."""
-        # Host = the batch's pinned page, else the active page, else (single
-        # read started before anything was active) the page being read.
-        host_id = self._append_host_page_id or self._active_page_id
+        # Host = the batch's pinned page, else the current combined host,
+        # else (single read before anything was active) the page just read.
+        host_id = self._append_host_page_id
+        if not host_id and self._active_page_id:
+            host_id = self._document_host_for(self._active_page_id)
         if not host_id:
             self._sidebar.select_page(outcome.page_id)
             self._activate_page(outcome.page_id)
@@ -799,13 +841,16 @@ class MainWindow(QMainWindow):
         separator = ""
         if self._settings.insert_page_separators:
             separator = f"— Page {page_index + 1} —"
+        # Anchor lets sidebar clicks jump to this page's section later.
+        anchor = f"page-{outcome.page_id}"
 
-        if host_id == self._active_page_id:
-            self._editor.append_document(outcome.document, separator)
+        self._project.host_page_id = host_id
+        if host_id == self._editor_page_id:
+            self._editor.append_document(outcome.document, separator, anchor)
             self._persist_active_document()
             return
-        # The user navigated away mid-batch: append to the host page's
-        # stored document without touching what they are looking at.
+        # The editor is showing something else: append to the host page's
+        # stored document without touching what the user is looking at.
         from PySide6.QtGui import QTextDocument as _QTextDocument
 
         host_index = self._project.page_index(host_id)
@@ -816,12 +861,12 @@ class MainWindow(QMainWindow):
         holder.setHtml(self._project.pages[host_index].document_html)
         from app.formatting.rich_text import append_structured_document
 
-        append_structured_document(holder, outcome.document, separator)
+        append_structured_document(holder, outcome.document, separator, anchor)
         self._project.set_page_document(host_id, holder.toHtml(), edited_by_user=False)
 
     def _store_outcome_per_page(self, outcome: ReadOutcome) -> None:
         """Replace mode: content replaces the owning page's document."""
-        if outcome.page_id == self._active_page_id:
+        if outcome.page_id == self._editor_page_id:
             # The user may have switched pages while reading; content goes to
             # the page it belongs to, and the editor only updates if that
             # page is still active.
@@ -855,10 +900,12 @@ class MainWindow(QMainWindow):
             return
         self._persist_active_document()
 
+        # "Unread" is tracked by workflow status, not stored content — in
+        # append mode only the host page carries the combined document.
         unread = [
             page
             for page in self._project.pages
-            if not page.document_html.strip()
+            if page.status is PageStatus.PENDING
         ]
         box = QMessageBox(self)
         box.setWindowTitle("Read All Pages")
@@ -891,12 +938,13 @@ class MainWindow(QMainWindow):
         if self._project is None or not pages or self._controller.is_batch_active:
             return
         if self._settings.output_mode == "append":
-            # The combined document needs a host page. Use the active page,
-            # or open the first batch page (the user just started this read).
+            # The combined document needs a host page. Use the existing
+            # combined host if there is one, else the active page, else the
+            # first batch page (the user just started this read).
             if not self._active_page_id:
                 self._sidebar.select_page(pages[0].page_id)
                 self._activate_page(pages[0].page_id)
-            self._append_host_page_id = self._active_page_id
+            self._append_host_page_id = self._document_host_for(self._active_page_id)
         self._persist_active_document()
         specs = [
             PageReadSpec(

@@ -34,8 +34,10 @@ Built with Python and PySide6 (Qt).
   *Read Selected Pages (N)*.
 - **One document, if you want it.** In Append output mode (the default,
   Settings > Reading) every page you read joins one continuous document in
-  the editor — page after page, in order, with optional "— Page N —"
-  markers. Switch to Replace mode to keep content on each page separately.
+  the editor — page after page, in order. Clicking any page in the sidebar
+  keeps the combined document visible and jumps to that page's section.
+  Optional "— Page N —" markers can be enabled in Settings. Switch to
+  Replace mode to keep content on each page separately.
 - **Pluggable engines.** OCR (Tesseract / EasyOCR / PaddleOCR) and AI vision
   (Claude / OpenAI / Gemini / local models) are interchangeable backends
   behind stable interfaces; the app depends on none of them specifically.

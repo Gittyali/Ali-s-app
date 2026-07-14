@@ -39,7 +39,13 @@ def window(qapp, tmp_path: Path, monkeypatch):
     from app.ui.main_window import MainWindow
 
     settings = SettingsManager()
+    settings.last_project_path = ""
     window = MainWindow(settings)
+    # Consume the deferred _startup_project timer NOW, while the dialog
+    # stubs are active — otherwise it fires inside a later test's event
+    # pump against a deleted window.
+    for _ in range(3):
+        qapp.processEvents()
 
     project = Project.create(tmp_path / "ui.adaproj", "UI")
     images = []
@@ -52,6 +58,8 @@ def window(qapp, tmp_path: Path, monkeypatch):
     yield window
     window._autosave.watch(None, 1)
     window.deleteLater()
+    for _ in range(3):
+        qapp.processEvents()
 
 
 class TestWindowResizing:

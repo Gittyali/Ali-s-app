@@ -379,6 +379,20 @@ class AppController(QObject):
                 # Settings > Reading > Continue after error is off: stop here.
                 cancelled = True
                 break
+            if outcome.document.is_empty():
+                # A page that yields nothing must show up in the summary —
+                # never report "all pages complete" while content is missing.
+                message = (
+                    "No text was recognised on this page. Check the image "
+                    "quality or read it again individually."
+                )
+                logger.warning("Batch: page %d/%d produced no text", index, total)
+                failures.append((spec.label or f"Item {index}", message))
+                self.batch_page_failed.emit(spec.page_id, message)
+                if not continue_after_error:
+                    cancelled = True
+                    break
+                continue
             succeeded += 1
             self.read_finished.emit(outcome)
 

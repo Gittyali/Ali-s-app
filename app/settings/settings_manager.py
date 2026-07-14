@@ -143,8 +143,11 @@ class SettingsManager(QObject):
 
     @property
     def insert_page_separators(self) -> bool:
-        """In append mode, insert a "— Page N —" marker between pages."""
-        return self._get_bool("reading/insert_page_separators", True)
+        """In append mode, insert a "— Page N —" marker between pages.
+
+        Off by default: most users want only their document's own text.
+        """
+        return self._get_bool("reading/insert_page_separators", False)
 
     @insert_page_separators.setter
     def insert_page_separators(self, value: bool) -> None:

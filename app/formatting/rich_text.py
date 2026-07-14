@@ -170,16 +170,20 @@ def append_structured_document(
     target: QTextDocument,
     document: StructuredDocument,
     separator_text: str = "",
+    anchor: str = "",
 ) -> None:
     """Append *document* to the END of *target* as one undoable edit.
 
     Used by single-document ("append") output mode: page after page is
     added to one continuous document.  A blank line separates pages; when
     *separator_text* is given (e.g. ``"— Page 3 —"``) a small centered
-    marker line is inserted before the new content.
+    marker line is inserted before the new content.  When *anchor* is
+    given, the section start is tagged with that anchor name so the UI can
+    jump to a page's content with ``QTextEdit.scrollToAnchor``.
     """
     cursor = QTextCursor(target)
     cursor.movePosition(QTextCursor.MoveOperation.End)
+    section_start = cursor.position()
     cursor.beginEditBlock()
     try:
         has_content = bool(target.toPlainText().strip())
@@ -195,8 +199,33 @@ def append_structured_document(
             cursor.insertText(separator_text, marker_format)
         for block in document.blocks:
             _insert_block(cursor, block)
+        if anchor:
+            # Tag the first visible character of the section; anchors
+            # survive the HTML round trip used for persistence.  Skip the
+            # blank/separator paragraphs — Qt only emits anchors for real
+            # text fragments.
+            probe = QTextCursor(target)
+            probe.setPosition(section_start)
+            probe.movePosition(QTextCursor.MoveOperation.NextBlock)
+            while not probe.block().text().strip() and probe.movePosition(
+                QTextCursor.MoveOperation.NextBlock
+            ):
+                pass
+            probe.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+            probe.movePosition(
+                QTextCursor.MoveOperation.NextCharacter,
+                QTextCursor.MoveMode.KeepAnchor,
+            )
+            if probe.hasSelection():
+                anchor_format = QTextCharFormat()
+                anchor_format.setAnchor(True)
+                anchor_format.setAnchorNames([anchor])
+                probe.mergeCharFormat(anchor_format)
     finally:
         cursor.endEditBlock()
     logger.debug(
-        "Appended %d blocks (separator=%r)", len(document.blocks), separator_text
+        "Appended %d blocks (separator=%r, anchor=%r)",
+        len(document.blocks),
+        separator_text,
+        anchor,
     )

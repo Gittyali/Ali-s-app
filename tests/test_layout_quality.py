@@ -159,7 +159,12 @@ class TestMenuBarAccess:
         from app.settings.settings_manager import SettingsManager
         from app.ui.main_window import MainWindow
 
-        window = MainWindow(SettingsManager())
+        settings = SettingsManager()
+        settings.last_project_path = ""
+        window = MainWindow(settings)
+        # Consume the deferred _startup_project timer while stubs are active.
+        for _ in range(3):
+            qapp.processEvents()
         menubar = window.menuBar()
         menu_titles = [action.text() for action in menubar.actions()]
         assert "&File" in menu_titles
@@ -174,4 +179,7 @@ class TestMenuBarAccess:
         assert "Export PDF…" in all_menu_actions
         assert "Export DOCX…" in all_menu_actions
         assert "Read All Pages" in all_menu_actions
+        window._autosave.watch(None, 1)
         window.deleteLater()
+        for _ in range(3):
+            qapp.processEvents()

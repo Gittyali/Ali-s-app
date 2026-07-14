@@ -42,6 +42,8 @@ class Project:
         self.directory = directory
         self.name = name or directory.stem
         self.pages: list[Page] = []
+        # Append output mode: id of the page holding the combined document.
+        self.host_page_id: str = ""
         self.modified = False
         self._last_saved: float = 0.0
 
@@ -76,6 +78,7 @@ class Project:
             raise ProjectError(f"Could not read project file: {exc}") from exc
 
         project = cls(directory, str(data.get("name", directory.stem)))
+        project.host_page_id = str(data.get("host_page_id", ""))
         for page_data in data.get("pages", []):
             page = Page.from_dict(page_data)
             # Stored paths are relative to the project directory.
@@ -133,7 +136,12 @@ class Project:
             except ValueError:
                 data["image_path"] = str(page.image_path)
             pages.append(data)
-        return {"version": _FORMAT_VERSION, "name": self.name, "pages": pages}
+        return {
+            "version": _FORMAT_VERSION,
+            "name": self.name,
+            "host_page_id": self.host_page_id,
+            "pages": pages,
+        }
 
     def save(self, target_file: Path | None = None) -> None:
         """Write project.json atomically (temp file + rename)."""
@@ -209,6 +217,8 @@ class Project:
         if index < 0:
             return False
         page = self.pages.pop(index)
+        if page_id == self.host_page_id:
+            self.host_page_id = ""
         try:
             if page.image_path.is_file() and self.pages_dir in page.image_path.parents:
                 page.image_path.unlink()

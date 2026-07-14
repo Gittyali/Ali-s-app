@@ -171,14 +171,23 @@ class DocumentEditor(QWidget):
         self._edit.setFocus()
 
     def append_document(
-        self, document: StructuredDocument, separator_text: str = ""
+        self,
+        document: StructuredDocument,
+        separator_text: str = "",
+        anchor: str = "",
     ) -> None:
         """Append recognised content at the end (single-document mode).
 
         Keeps the user's scroll/cursor position: content grows at the end
         while they may be correcting an earlier page.
         """
-        append_structured_document(self._edit.document(), document, separator_text)
+        append_structured_document(
+            self._edit.document(), document, separator_text, anchor
+        )
+
+    def scroll_to_anchor(self, name: str) -> None:
+        """Jump to a page's section in the combined document."""
+        self._edit.scrollToAnchor(name)
 
     def set_editor_enabled(self, enabled: bool) -> None:
         self._edit.setEnabled(enabled)
