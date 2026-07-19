@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -39,10 +40,27 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     private val main = Handler(Looper.getMainLooper())
     private val density: Float get() = resources.displayMetrics.density
 
+    // React instantly when the app toggles the assistant on/off.
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == Prefs.KEY_ENABLED) main.post { applyEnabledState() }
+    }
+
     override fun onServiceConnected() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         tts = TextToSpeech(this, this)
-        showBubble()
+        Prefs.prefs(this).registerOnSharedPreferenceChangeListener(prefsListener)
+        applyEnabledState()
+    }
+
+    /** Show the bubble when enabled; hide it (and any open panel) when paused. */
+    private fun applyEnabledState() {
+        if (Prefs.enabled(this)) {
+            showBubble()
+        } else {
+            removePanel()
+            bubble?.let { runCatching { wm.removeView(it) } }
+            bubble = null
+        }
     }
 
     override fun onInit(status: Int) {
@@ -56,6 +74,7 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     override fun onInterrupt() {}
 
     override fun onDestroy() {
+        runCatching { Prefs.prefs(this).unregisterOnSharedPreferenceChangeListener(prefsListener) }
         removePanel()
         bubble?.let { runCatching { wm.removeView(it) } }
         bubble = null
@@ -86,22 +105,32 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             y = resources.displayMetrics.heightPixels / 3
         }
 
-        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var moved = false
+        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0
+        var moved = false; var longPressed = false
+        val longPress = Runnable {
+            if (!moved) { longPressed = true; pauseFromBubble() }
+        }
         view.setOnTouchListener { v, e ->
             when (e.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = e.rawX; downY = e.rawY; startX = lp.x; startY = lp.y; moved = false
+                    downX = e.rawX; downY = e.rawY; startX = lp.x; startY = lp.y
+                    moved = false; longPressed = false
+                    main.postDelayed(longPress, 700)  // hold to pause
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
-                    if (abs(dx) > dp(6) || abs(dy) > dp(6)) moved = true
+                    if (abs(dx) > dp(6) || abs(dy) > dp(6)) {
+                        moved = true
+                        main.removeCallbacks(longPress)
+                    }
                     lp.x = startX + dx.toInt(); lp.y = startY + dy.toInt()
                     runCatching { wm.updateViewLayout(v, lp) }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!moved) onBubbleTapped()
+                    main.removeCallbacks(longPress)
+                    if (!moved && !longPressed) onBubbleTapped()
                     true
                 }
                 else -> false
@@ -109,6 +138,12 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         }
         runCatching { wm.addView(view, lp) }
         bubble = view
+    }
+
+    /** Long-press on the bubble pauses the assistant (bubble disappears). */
+    private fun pauseFromBubble() {
+        Prefs.setEnabled(this, false)  // listener removes the bubble
+        toast("⏸ بند کر دیا — دوبارہ چالو کرنے کے لیے English Assistant ایپ کھولیں\nPaused — open the English Assistant app to turn it back on")
     }
 
     private fun onBubbleTapped() {
@@ -285,7 +320,11 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         if (safe.blocked) {
             setPanelTitle("🔒 حفاظت • Protected")
             clearContent()
-            addNote("یہ پیغام OTP یا پاس ورڈ لگتا ہے، اس لیے حفاظت کے لیے کہیں نہیں بھیجا گیا۔\n\nThis looks like an OTP/password message, so for your safety it was NOT sent anywhere.")
+            val note = if (safe.reason == Redactor.Reason.FINANCIAL)
+                "یہ پیغام کارڈ نمبر، CVV یا میعاد جیسی مالی معلومات لگتا ہے، اس لیے حفاظت کے لیے کہیں نہیں بھیجا گیا۔\n\nThis looks like card / financial information (card number, CVV, or expiry), so for your safety it was NOT sent anywhere."
+            else
+                "یہ پیغام OTP یا پاس ورڈ لگتا ہے، اس لیے حفاظت کے لیے کہیں نہیں بھیجا گیا۔\n\nThis looks like an OTP/password message, so for your safety it was NOT sent anywhere."
+            addNote(note)
             return
         }
         setPanelTitle("سمجھ رہا ہوں… • Understanding…")

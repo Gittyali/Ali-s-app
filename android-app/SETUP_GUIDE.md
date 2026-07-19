@@ -65,7 +65,9 @@ the app shows the English translation → tap **✍️ چیٹ میں لکھیں*
 |---|---|
 | **Cannot see other apps** | The assistant is locked (at the Android system level) to chat apps only: WhatsApp, WhatsApp Business, TikTok, Instagram, Messenger, Facebook, Telegram, imo. Banking apps, JazzCash/Easypaisa, documents, gallery, settings — invisible to it. Tapping the bubble anywhere else shows a 🔒 "Protected" notice. |
 | **Sensitive numbers never leave the phone** | Before a message is sent to the AI, the app removes payment-card numbers (checksum-verified), bank account/IBAN numbers, CNIC numbers, and any 14+ digit number, replacing them with placeholders. You'll see "🔒 Sensitive numbers were hidden" when this happens. |
+| **Card & financial data is blocked** | If a tapped message contains a card number (any 13–19 digit sequence), CVV/CVC, an expiry date, an IBAN, or a CNIC number, the app refuses to send it and shows a 🔒 notice. It does not even try to translate it. |
 | **OTP / password messages are blocked** | If a tapped message looks like an OTP or password message, the app refuses to send it anywhere and shows a security notice. |
+| **Pause / resume switch** | The bubble can be turned off anytime — long-press the bubble, or use the ON/OFF button at the top of the app. When off, the assistant is not on screen and reads nothing. Turn it back on from the same button. |
 | **No storage, no history** | Messages are never saved, logged, or stored. Only the single message you tap is sent — over HTTPS, only to Google's Gemini API — used for that one answer. |
 | **Minimal permissions** | The app has only Internet + Microphone. It has NO permission for contacts, files, photos, SMS, or call logs — Android physically prevents it from reading them. |
 | **No cleartext traffic** | All network traffic is HTTPS-only, enforced in the app configuration. |

@@ -19,6 +19,22 @@
             android:gravity="center"
             android:textColor="#1B7A43" />
 
+        <Button
+            android:id="@+id/toggleBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textStyle="bold"
+            android:textSize="17sp"
+            android:text="Assistant is ON • چالو ہے" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#555555"
+            android:textSize="13sp"
+            android:text="Tap above to hide/show the bubble. You can also long-press the bubble to pause it.\nاوپر دبا کر بٹن چھپائیں یا دکھائیں۔ بٹن کو دیر تک دبا کر بھی بند کر سکتے ہیں۔" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
