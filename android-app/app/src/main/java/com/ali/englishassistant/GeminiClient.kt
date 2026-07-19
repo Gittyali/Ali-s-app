@@ -17,77 +17,70 @@ object GeminiClient {
     /** Thrown when the configured model has been retired/renamed by Google (HTTP 404). */
     private class ModelUnavailableException(msg: String) : IOException(msg)
 
+    /** Thrown on HTTP 429 (per-minute quota). Carries the server's suggested wait. */
+    private class RateLimitException(val retryAfterMs: Long) : IOException("rate limited")
+
+    /** One suggested reply: the English text to send, plus its natural Urdu meaning. */
+    data class Reply(val english: String, val urdu: String)
+    data class Result(val urdu: String, val replies: List<Reply>)
+
     /**
-     * The ONLY use of AI in the app: suggest 2 English replies to the customer's
-     * message. Translation to Urdu is done on-device (offline), not here, so a
-     * quota error here never breaks translation — it only pauses suggestions.
-     * Returns the English reply strings.
+     * ONE AI call that returns BOTH a natural, human Urdu explanation of the
+     * customer's message AND two professional English replies (each with its
+     * Urdu meaning). Combining them keeps quota use low while giving
+     * ChatGPT-quality understanding.
      */
-    fun suggestReplies(ctx: Context, message: String): List<String> {
+    fun analyzeMessage(ctx: Context, message: String): Result {
         val prompt = """
-            A Pakistani exporter received this chat message from a customer:
+            You are a smart bilingual assistant helping a Pakistani exporter who does NOT understand English.
+            A customer sent him this chat message:
 
             "$message"
 
-            Suggest exactly 2 short, polite, professional one-line English replies he could send back.
-            Make them different from each other (e.g. one positive/accepting, one asking for a detail).
-            Reply ONLY with a JSON array of 2 strings, no other text, like:
-            ["reply one", "reply two"]
-            No emojis, no extra keys.
+            Reply ONLY as JSON in exactly this shape (no other text):
+            {"urdu": "...", "replies": [{"english": "...", "urdu": "..."}, {"english": "...", "urdu": "..."}]}
+
+            - "urdu": Explain in clear, natural, conversational Urdu (Urdu script) what the customer really
+              means and wants — the way a smart friend would explain it, capturing intent and tone. NOT a
+              stiff word-for-word translation. 1-3 sentences. Understand business/social media terms
+              (reel, edit, raw footage, sample, order, shipping, invoice) correctly.
+            - "replies": exactly 2 short, polite, professional English replies he could send back, clearly
+              different from each other (e.g. one accepting, one asking a useful question). Each item has
+              "english" (the reply to send) and "urdu" (a natural Urdu meaning of that reply). No emojis.
         """.trimIndent()
 
         val text = generate(ctx, prompt, jsonMode = true)
-        val arr = parseArray(text)
-        val replies = ArrayList<String>()
+        val obj = JSONObject(extractJson(text))
+        val arr = obj.optJSONArray("replies") ?: JSONArray()
+        val replies = ArrayList<Reply>()
         for (i in 0 until arr.length()) {
             val item = arr.opt(i)
-            val en = if (item is JSONObject) item.optString("english").trim()
-                     else arr.optString(i).trim()
-            if (en.isNotEmpty()) replies.add(en)
+            if (item is JSONObject) {
+                val en = item.optString("english").trim()
+                val ur = item.optString("urdu").trim()
+                if (en.isNotEmpty()) replies.add(Reply(en, ur))
+            }
         }
-        return replies
-    }
-
-    private fun parseArray(text: String): JSONArray {
-        val t = text.trim()
-        val start = t.indexOf('[')
-        val end = t.lastIndexOf(']')
-        if (start >= 0 && end > start) return JSONArray(t.substring(start, end + 1))
-        // Some models wrap the array in an object like {"replies": [...]}.
-        val obj = JSONObject(extractJson(t))
-        return obj.optJSONArray("replies") ?: JSONArray()
+        return Result(obj.optString("urdu").trim(), replies)
     }
 
     /**
      * AI turns uncle's spoken Urdu into a polished, professional English chat
-     * reply — context-aware, not a literal word-for-word translation.
+     * reply — context-aware, and it corrects obvious speech-recognition slips
+     * (e.g. "rail" that should be "reel").
      */
     fun urduToEnglish(ctx: Context, urdu: String): String {
         val prompt = """
-            A Pakistani exporter wants to reply to a business customer. He said this in Urdu:
+            A Pakistani exporter is replying to a business customer. He SPOKE the following in Urdu, so it
+            came from voice recognition and may contain small mis-hearings — especially English business
+            words written phonetically (e.g. "ریل/rail" almost always means "reel", "ایڈٹ" means "edit",
+            "ویڈیو" means "video"). First understand what he actually means, correcting such slips:
 
             "$urdu"
 
-            Turn it into ONE short, polite, natural, professional English chat message a business
-            person would actually send. Keep his meaning; fix grammar and tone.
+            Then write ONE short, polite, natural, professional English chat message that conveys his
+            intended meaning, with correct grammar and tone.
             Reply with ONLY the English message text — no quotes, no explanation, nothing else.
-        """.trimIndent()
-        return generate(ctx, prompt, jsonMode = false).trim().trim('"')
-    }
-
-    /**
-     * On-demand only: a nicer, natural Urdu EXPLANATION of the message (not a
-     * literal translation). Used when uncle taps "Explain better", so it costs
-     * an AI call only when he asks for it.
-     */
-    fun explainUrdu(ctx: Context, message: String): String {
-        val prompt = """
-            A Pakistani exporter who does not understand English received this chat message from a customer:
-
-            "$message"
-
-            In simple, natural Urdu (Urdu script), clearly explain what the customer means or is asking for.
-            Keep it short — 1 to 2 sentences. Reply with ONLY the Urdu text, nothing else.
         """.trimIndent()
         return generate(ctx, prompt, jsonMode = false).trim().trim('"')
     }
@@ -106,12 +99,12 @@ object GeminiClient {
         val key = Prefs.apiKey(ctx)
         if (key.isBlank()) throw IOException("No API key set")
         return try {
-            call(key, Prefs.model(ctx), prompt, jsonMode)
+            callRetrying(key, Prefs.model(ctx), prompt, jsonMode)
         } catch (e: ModelUnavailableException) {
             var lastError: Exception = e
             for (candidate in discoverModels(key)) {
                 try {
-                    val result = call(key, candidate, prompt, jsonMode)
+                    val result = callRetrying(key, candidate, prompt, jsonMode)
                     Prefs.saveModel(ctx, candidate)
                     return result
                 } catch (err: ModelUnavailableException) {
@@ -119,6 +112,17 @@ object GeminiClient {
                 }
             }
             throw lastError
+        }
+    }
+
+    /** Retries once on a 429 rate limit after a short, capped wait. */
+    private fun callRetrying(apiKey: String, model: String, prompt: String, jsonMode: Boolean): String {
+        return try {
+            call(apiKey, model, prompt, jsonMode)
+        } catch (e: RateLimitException) {
+            // Wait the server's suggested delay, capped so the user isn't stuck long.
+            Thread.sleep(e.retryAfterMs.coerceIn(1000L, 6000L))
+            call(apiKey, model, prompt, jsonMode)
         }
     }
 
@@ -193,6 +197,7 @@ object GeminiClient {
                     JSONObject(err).getJSONObject("error").optString("message")
                 } catch (e: Exception) { err.take(200) }
                 if (code == 404) throw ModelUnavailableException("Model $model unavailable: $msg")
+                if (code == 429) throw RateLimitException(parseRetryMs(err))
                 throw IOException("API error $code: $msg")
             }
 
@@ -209,6 +214,13 @@ object GeminiClient {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** Pulls the "retryDelay" (e.g. "35s") out of a 429 body; defaults to 3s. */
+    private fun parseRetryMs(errorBody: String): Long {
+        val m = Regex("\"retryDelay\"\\s*:\\s*\"(\\d+)s\"").find(errorBody)
+        val secs = m?.groupValues?.get(1)?.toLongOrNull() ?: 3L
+        return secs * 1000L
     }
 
     /** Models sometimes wrap JSON in markdown fences even in JSON mode — strip them. */

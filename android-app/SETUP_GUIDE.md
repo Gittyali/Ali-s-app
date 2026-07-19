@@ -8,9 +8,9 @@ chosen reply straight into the chat box.
 
 ## How translation works (important)
 
-- **Reading an incoming message → Urdu is done offline, on the phone** — instant, no API, no quota. The first time it downloads a ~30MB Urdu language pack (needs internet once); after that it works even offline. The 🤖 Explain better button upgrades any awkward translation using AI, on demand.
-- **AI (Gemini) is used for: the 2 suggested replies, turning uncle's spoken Urdu into a professional English reply, and the on-demand Explain better.** These need context, so AI does them better than literal translation.
-- **The free AI tier allows ~20 requests per minute.** Normal use (a few messages) stays well under it. If you tap many messages very fast you may briefly hit the limit — the app shows a "wait a minute / Try again" button, and meanwhile offline translation and understanding keep working.
+- **Reading a message:** the app shows an instant offline translation first, then upgrades it in place to a **natural, human AI explanation** (like ChatGPT) that captures the real meaning and tone — using ONE AI call that also produces the 2 replies, so quota stays low. If the AI is momentarily busy, the quick offline version stays.
+- **AI (Gemini) is used for: the natural explanation + 2 suggested replies (one call), and turning uncle's spoken Urdu into a professional English reply** (it even fixes voice-recognition slips like "rail" → "reel"). Offline translation is only a fast preview / safety net.
+- **The free AI tier allows ~20 requests per minute.** Normal use stays well under it, and the app auto-retries once if it's briefly rate-limited. First run needs internet once to download the ~30MB offline Urdu pack.
 
 ## Part 1 — Get a free Gemini API key (do this once, on any device)
 
@@ -54,8 +54,7 @@ These phones kill background apps, which makes the bubble disappear. Do both:
 | 1 | Open any chat (WhatsApp / TikTok / Instagram / Facebook) | کوئی بھی چیٹ کھولیں |
 | 2 | Tap the green 💬 bubble | سبز 💬 بٹن دبائیں |
 | 3 | Tap the customer's message (the list shows customer messages only, newest first) | کسٹمر کا پیغام منتخب کریں |
-| 4 | Read the Urdu translation (instant, offline), or tap 🔊 to hear it | اردو ترجمہ پڑھیں یا 🔊 سے سنیں |
-| 4b | If a translation reads awkwardly, tap 🤖 Explain better for a clearer AI explanation (uses 1 AI call, on demand) | 🤖 بہتر سمجھائیں دبائیں |
+| 4 | Read the Urdu — a quick version appears instantly, then upgrades to the natural AI explanation; tap 🔊 to hear it | اردو پڑھیں (پہلے فوری، پھر بہتر AI) یا 🔊 سے سنیں |
 | 5 | Each suggested reply shows its Urdu meaning (read it), a 🔊 to hear it, and ✍️ Type to put it in the chat box | ہر جواب کا اردو مطلب لکھا ہوتا ہے، 🔊 سے سنیں، ✍️ سے چیٹ میں لکھیں |
 | 6 | Press **Send** | Send دبائیں |
 

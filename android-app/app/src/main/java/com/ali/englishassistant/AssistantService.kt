@@ -418,115 +418,82 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         }
         currentSafeMessage = safe.text
         currentOriginalMessage = message
-        // STEP 1 — translate the customer's message to Urdu OFFLINE (instant,
-        // always works, no quota). STEP 2 — AI suggests English replies (only
-        // if an API key is set).
+        // Show the instant offline translation as a quick preview, then upgrade
+        // it in place to a natural AI explanation. ONE AI call returns both the
+        // human-style Urdu explanation AND the 2 replies, keeping quota low.
         setPanelTitle("ترجمہ ہو رہا ہے… • Translating…")
         clearContent()
         addNote("⏳ …")
         Thread {
-            val urdu = runCatching { Translator.toUrdu(message) }.getOrNull()
-            main.post { showMeaning(message, urdu, safe.redacted) }
+            val offline = runCatching { Translator.toUrdu(message) }.getOrNull()
+            main.post { renderMeaning(message, offline, safe.redacted, isAi = false) }
 
             if (Prefs.apiKey(this).isBlank()) {
                 main.post { showReplies(emptyList(), noKey = true) }
                 return@Thread
             }
-            // Only the reply suggestions use the AI. Translate them to Urdu offline.
-            val replyItems = runCatching {
-                GeminiClient.suggestReplies(this, safe.text).map { en ->
-                    ReplyItem(en, runCatching { Translator.toUrdu(en) }.getOrDefault(""))
+            val result = runCatching { GeminiClient.analyzeMessage(this, safe.text) }.getOrNull()
+            main.post {
+                if (result != null && result.urdu.isNotBlank()) {
+                    // Upgrade the translation to the natural AI version, in place.
+                    updateMeaningToAi(result.urdu)
+                    showReplies(result.replies.map { ReplyItem(it.english, it.urdu) })
+                } else {
+                    // AI busy/limited — keep the offline preview, show retry for replies.
+                    showReplies(emptyList())
                 }
-            }.getOrDefault(emptyList())
-            main.post { showReplies(replyItems) }
+            }
         }.start()
     }
 
     private data class ReplyItem(val english: String, val urdu: String)
 
     private var repliesLoadingView: TextView? = null
+    private var meaningUrduView: TextView? = null
+    private var meaningTagView: TextView? = null
+    private var currentMeaningUrdu: String = ""
     private var currentSafeMessage: String = ""
     private var currentOriginalMessage: String = ""
-    private var explainInsertIndex: Int = 0
-    private var explainShown: Boolean = false
 
-    private fun showMeaning(original: String, urdu: String?, redacted: Boolean) {
+    private fun renderMeaning(original: String, urdu: String?, redacted: Boolean, isAi: Boolean) {
         if (panel == null) return
-        explainShown = false
         setPanelTitle("ترجمہ • Translation")
         clearContent()
         if (redacted) {
             addNote("🔒 حساس نمبر چھپا کر بھیجے گئے • Sensitive numbers were hidden", Color.parseColor("#1B7A43"), 12f)
         }
         addNote("“${if (original.length > 90) original.take(90) + "…" else original}”", Color.GRAY, 13f)
-        if (urdu.isNullOrBlank()) {
-            addNote("ترجمہ ڈاؤن لوڈ کے لیے ایک بار انٹرنیٹ آن کریں، پھر دوبارہ ٹیپ کریں\nTurn on internet once so the translator can download, then tap again.", Color.RED, 15f)
-        } else {
-            val urduView = addNote(urdu, Color.BLACK, 19f)
-            urduView.textDirection = View.TEXT_DIRECTION_RTL
-            addChip("🔊 سنیں • Listen") { speakUrdu(urdu) }
-            addChip("🤖 بہتر سمجھائیں (AI) • Explain better", grey = true) { explainBetter() }
-        }
 
-        // An on-demand AI explanation (if requested) is inserted right here,
-        // between the buttons above and the replies below.
-        explainInsertIndex = panelContent?.childCount ?: 0
+        // A small tag showing whether this is the quick offline version or the
+        // better AI one.
+        meaningTagView = addNote(
+            if (isAi) "🤖 AI" else "⏳ فوری ترجمہ — AI بہتر بنا رہا ہے… • quick translation — AI improving…",
+            Color.GRAY, 11f
+        )
+
+        currentMeaningUrdu = urdu ?: ""
+        if (urdu.isNullOrBlank()) {
+            meaningUrduView = addNote("ایک بار انٹرنیٹ آن کریں، پھر دوبارہ ٹیپ کریں\nTurn on internet once, then tap again.", Color.RED, 15f)
+        } else {
+            meaningUrduView = addNote(urdu, Color.BLACK, 19f).also {
+                it.textDirection = View.TEXT_DIRECTION_RTL
+            }
+            addChip("🔊 سنیں • Listen") { speakUrdu(currentMeaningUrdu) }
+        }
         // Placeholder while the AI replies load in the background.
         repliesLoadingView = addNote("⏳ جواب تیار ہو رہے ہیں… • Preparing replies…", Color.GRAY, 14f)
     }
 
-    /** On-demand AI explanation of the current message, inserted under the translation. */
-    private fun explainBetter() {
-        if (Prefs.apiKey(this).isBlank()) {
-            toast("AI جواب کے لیے ایپ میں API کلید لگائیں\nAdd an API key in the app for AI")
-            return
+    /** Replace the offline preview text with the natural AI explanation, in place. */
+    private fun updateMeaningToAi(aiUrdu: String) {
+        if (panel == null) return
+        currentMeaningUrdu = aiUrdu
+        meaningTagView?.text = "🤖 AI"
+        meaningUrduView?.apply {
+            text = aiUrdu
+            setTextColor(Color.BLACK)
+            textDirection = View.TEXT_DIRECTION_RTL
         }
-        toast("⏳ AI سے بہتر وضاحت لے رہے ہیں…")
-        Thread {
-            val better = runCatching { GeminiClient.explainUrdu(this, currentSafeMessage) }.getOrNull()
-            main.post {
-                if (panel == null) return@post
-                if (better.isNullOrBlank()) {
-                    toast("AI ابھی مصروف ہے — تھوڑی دیر بعد کوشش کریں\nAI busy right now — try again shortly")
-                    return@post
-                }
-                val box = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setBackgroundResource(R.drawable.chip_grey_bg)
-                    setPadding(dp(12), dp(10), dp(12), dp(10))
-                    val p = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    p.topMargin = dp(8)
-                    layoutParams = p
-                }
-                box.addView(TextView(this).apply {
-                    text = "🤖 بہتر وضاحت • AI explanation"
-                    textSize = 12f
-                    setTextColor(Color.GRAY)
-                })
-                box.addView(TextView(this).apply {
-                    text = better
-                    textSize = 18f
-                    setTextColor(Color.BLACK)
-                    textDirection = View.TEXT_DIRECTION_RTL
-                    setPadding(0, dp(4), 0, dp(4))
-                })
-                box.addView(TextView(this).apply {
-                    text = "🔊 سنیں • Listen"
-                    textSize = 14f
-                    setTextColor(Color.parseColor("#1B7A43"))
-                    setTypeface(null, Typeface.BOLD)
-                    setOnClickListener { speakUrdu(better) }
-                })
-                // Replace a previous AI explanation if the user taps again.
-                if (explainShown) panelContent?.getChildAt(explainInsertIndex)?.let {
-                    panelContent?.removeViewAt(explainInsertIndex)
-                }
-                panelContent?.addView(box, explainInsertIndex)
-                explainShown = true
-            }
-        }.start()
     }
 
     private fun showReplies(replies: List<ReplyItem>, noKey: Boolean = false) {
@@ -682,6 +649,9 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
                 }
                 addNote(english, Color.BLACK, 17f)
                 addChip("✍️ چیٹ میں لکھیں • Type into chat") { insertIntoChat(english) }
+                if (!aiUsed) {
+                    addChip("🤖 AI سے بہتر بنائیں • Improve with AI", grey = true) { translateSpokenUrdu(urdu) }
+                }
                 addChip("🎤 دوبارہ بولیں • Speak again", grey = true) { startListening() }
             }
         }.start()
