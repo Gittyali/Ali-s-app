@@ -8,8 +8,9 @@ chosen reply straight into the chat box.
 
 ## How translation works (important)
 
-- **Translating messages (and replies) English↔Urdu is done offline, on the phone** — no API, no quota, no error. The first time, it downloads a ~30MB Urdu language pack (needs internet once); after that it works instantly, even offline.
-- **The AI (Gemini) is used ONLY to suggest the 2 replies.** If the free AI quota is ever hit (error 429), translation and understanding keep working — only the auto-suggested replies pause, and uncle can still record his own reply.
+- **Reading an incoming message → Urdu is done offline, on the phone** — instant, no API, no quota. The first time it downloads a ~30MB Urdu language pack (needs internet once); after that it works even offline. The 🤖 Explain better button upgrades any awkward translation using AI, on demand.
+- **AI (Gemini) is used for: the 2 suggested replies, turning uncle's spoken Urdu into a professional English reply, and the on-demand Explain better.** These need context, so AI does them better than literal translation.
+- **The free AI tier allows ~20 requests per minute.** Normal use (a few messages) stays well under it. If you tap many messages very fast you may briefly hit the limit — the app shows a "wait a minute / Try again" button, and meanwhile offline translation and understanding keep working.
 
 ## Part 1 — Get a free Gemini API key (do this once, on any device)
 

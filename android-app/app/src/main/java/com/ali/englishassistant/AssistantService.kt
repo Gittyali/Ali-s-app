@@ -417,6 +417,7 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             return
         }
         currentSafeMessage = safe.text
+        currentOriginalMessage = message
         // STEP 1 — translate the customer's message to Urdu OFFLINE (instant,
         // always works, no quota). STEP 2 — AI suggests English replies (only
         // if an API key is set).
@@ -445,6 +446,7 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
 
     private var repliesLoadingView: TextView? = null
     private var currentSafeMessage: String = ""
+    private var currentOriginalMessage: String = ""
     private var explainInsertIndex: Int = 0
     private var explainShown: Boolean = false
 
@@ -535,7 +537,8 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         if (noKey) {
             addNote("تجویز کردہ جواب کے لیے ایپ میں API کلید لگائیں — یا اپنا جواب بولیں\nAdd an API key in the app for suggested replies — or speak your own", Color.GRAY, 14f)
         } else if (replies.isEmpty()) {
-            addNote("تجویز کردہ جواب ابھی دستیاب نہیں (AI مصروف ہے) — آپ اپنا جواب بول سکتے ہیں\nSuggested replies unavailable right now (AI busy) — you can speak your own reply", Color.GRAY, 14f)
+            addNote("تجویز کردہ جواب ابھی نہیں آئے (AI کی فی منٹ حد پوری) — ایک منٹ بعد دوبارہ کوشش کریں\nSuggested replies didn't load (AI per-minute limit reached) — wait a minute and try again", Color.GRAY, 14f)
+            addChip("🔄 جواب دوبارہ لائیں • Try again for replies") { analyze(currentOriginalMessage) }
         } else {
             addNote("جواب منتخب کریں — خود چیٹ میں لکھا جائے گا\nPick a reply — it will be typed into the chat:", Color.parseColor("#1B7A43"), 14f)
             for (r in replies) addReply(r)
@@ -656,20 +659,27 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         clearContent()
         addNote("آپ نے کہا: $urdu", Color.GRAY, 14f)
         Thread {
-            // Offline Urdu → English translation (no AI, no quota).
-            val english = runCatching { Translator.toEnglish(urdu) }.getOrNull()
+            // AI turns it into a professional English reply (context-aware).
+            // If the AI is momentarily rate-limited, fall back to offline
+            // translation so uncle still gets something usable.
+            var aiUsed = true
+            val english = runCatching { GeminiClient.urduToEnglish(this, urdu) }.getOrNull()
+                ?: run { aiUsed = false; runCatching { Translator.toEnglish(urdu) }.getOrNull() }
             main.post {
                 if (panel == null) return@post
                 if (english.isNullOrBlank()) {
                     setPanelTitle("مسئلہ ہو گیا • Error")
                     clearContent()
-                    addNote("ترجمہ ڈاؤن لوڈ کے لیے ایک بار انٹرنیٹ آن کریں\nTurn on internet once so the translator can download.", Color.RED)
+                    addNote("ایک بار انٹرنیٹ آن کریں اور دوبارہ کوشش کریں\nTurn on internet once and try again.", Color.RED)
                     addChip("🎤 دوبارہ کوشش کریں • Try again") { startListening() }
                     return@post
                 }
                 setPanelTitle("انگریزی جواب • English reply")
                 clearContent()
                 addNote("آپ نے کہا: $urdu", Color.GRAY, 14f)
+                if (!aiUsed) {
+                    addNote("(AI مصروف تھا — سادہ ترجمہ استعمال ہوا)\n(AI busy — used simple translation)", Color.GRAY, 12f)
+                }
                 addNote(english, Color.BLACK, 17f)
                 addChip("✍️ چیٹ میں لکھیں • Type into chat") { insertIntoChat(english) }
                 addChip("🎤 دوبارہ بولیں • Speak again", grey = true) { startListening() }

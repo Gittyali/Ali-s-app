@@ -59,6 +59,23 @@ object GeminiClient {
     }
 
     /**
+     * AI turns uncle's spoken Urdu into a polished, professional English chat
+     * reply — context-aware, not a literal word-for-word translation.
+     */
+    fun urduToEnglish(ctx: Context, urdu: String): String {
+        val prompt = """
+            A Pakistani exporter wants to reply to a business customer. He said this in Urdu:
+
+            "$urdu"
+
+            Turn it into ONE short, polite, natural, professional English chat message a business
+            person would actually send. Keep his meaning; fix grammar and tone.
+            Reply with ONLY the English message text — no quotes, no explanation, nothing else.
+        """.trimIndent()
+        return generate(ctx, prompt, jsonMode = false).trim().trim('"')
+    }
+
+    /**
      * On-demand only: a nicer, natural Urdu EXPLANATION of the message (not a
      * literal translation). Used when uncle taps "Explain better", so it costs
      * an AI call only when he asks for it.
