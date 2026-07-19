@@ -49,7 +49,7 @@ These phones kill background apps, which makes the bubble disappear. Do both:
 | 2 | Tap the green 💬 bubble | سبز 💬 بٹن دبائیں |
 | 3 | Tap the customer's message (the list shows customer messages only, newest first) | کسٹمر کا پیغام منتخب کریں |
 | 4 | Read the Urdu meaning, or tap 🔊 to hear it | مطلب اردو میں پڑھیں یا 🔊 سے سنیں |
-| 5 | Tap 🔊 next to a suggested reply to hear its Urdu meaning, then tap the reply to type it into the chat box | جواب کے ساتھ 🔊 دبا کر اردو مطلب سنیں، پھر جواب دبائیں |
+| 5 | Each suggested reply shows its Urdu meaning (read it), a 🔊 to hear it, and ✍️ Type to put it in the chat box | ہر جواب کا اردو مطلب لکھا ہوتا ہے، 🔊 سے سنیں، ✍️ سے چیٹ میں لکھیں |
 | 6 | Press **Send** | Send دبائیں |
 
 **To say something in his own words:** tap **🎤 اردو میں بولیں**, speak in Urdu,
@@ -68,6 +68,7 @@ the app shows the English translation → tap **✍️ چیٹ میں لکھیں*
 | **Card & financial data is blocked** | If a tapped message contains a card number (any 13–19 digit sequence), CVV/CVC, an expiry date, an IBAN, or a CNIC number, the app refuses to send it and shows a 🔒 notice. It does not even try to translate it. |
 | **OTP / password messages are blocked** | If a tapped message looks like an OTP or password message, the app refuses to send it anywhere and shows a security notice. |
 | **Pause / resume switch** | The bubble can be turned off anytime — long-press the bubble, or use the ON/OFF button at the top of the app. When off, the assistant is not on screen and reads nothing. Turn it back on from the same button. |
+| **Auto-off when screen is off** | When the phone screen turns off, the bubble disappears and the app reads nothing. When the phone wakes/unlocks, the bubble comes back automatically (no re-setup). |
 | **No storage, no history** | Messages are never saved, logged, or stored. Only the single message you tap is sent — over HTTPS, only to Google's Gemini API — used for that one answer. |
 | **Minimal permissions** | The app has only Internet + Microphone. It has NO permission for contacts, files, photos, SMS, or call logs — Android physically prevents it from reading them. |
 | **No cleartext traffic** | All network traffic is HTTPS-only, enforced in the app configuration. |

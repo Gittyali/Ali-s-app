@@ -16,43 +16,62 @@ object GeminiClient {
 
     /** One suggested reply: the English text to send, plus its Urdu meaning. */
     data class Reply(val english: String, val urdu: String)
-    data class Analysis(val urdu: String, val replies: List<Reply>)
 
     /** Thrown when the configured model has been retired/renamed by Google (HTTP 404). */
     private class ModelUnavailableException(msg: String) : IOException(msg)
 
-    fun analyzeMessage(ctx: Context, message: String): Analysis {
+    /** STEP 1 (fast): just the Urdu meaning of the customer's message. */
+    fun explainUrdu(ctx: Context, message: String): String {
         val prompt = """
-            You are helping a Pakistani exporter who does not understand English.
-            A customer sent him this chat message:
+            A Pakistani exporter who does not understand English received this chat message from a customer:
 
             "$message"
 
-            Reply ONLY with a JSON object, no other text, in this exact shape:
-            {"urdu": "...", "replies": [{"english": "...", "urdu": "..."}, {"english": "...", "urdu": "..."}]}
+            In simple, natural Urdu (Urdu script), explain what the customer is saying or asking.
+            Keep it short — 1 to 2 sentences. Reply with ONLY the Urdu text, nothing else.
+        """.trimIndent()
+        return generate(ctx, prompt, jsonMode = false).trim().trim('"')
+    }
 
-            Rules:
-            - Top-level "urdu": explain in simple, natural Urdu (Urdu script) what the customer is saying or asking. Keep it short (1-2 sentences).
-            - "replies": exactly 2 options. Each has "english" (a short, polite, professional one-line English reply he could send) and "urdu" (a short Urdu-script meaning of that same reply, so he understands what it says). Make the two replies different from each other (e.g. one positive/accepting, one asking for detail). No emojis.
+    /** STEP 2: two professional English replies, each with its Urdu meaning. */
+    fun suggestReplies(ctx: Context, message: String): List<Reply> {
+        val prompt = """
+            A Pakistani exporter received this chat message from a customer:
+
+            "$message"
+
+            Suggest exactly 2 short, polite, professional one-line English replies he could send back.
+            Make them different from each other (e.g. one positive/accepting, one asking for a detail).
+            Reply ONLY with a JSON array, no other text, in this exact shape:
+            [{"english": "...", "urdu": "..."}, {"english": "...", "urdu": "..."}]
+            where "english" is the reply to send and "urdu" is a short Urdu-script meaning of that reply. No emojis.
         """.trimIndent()
 
         val text = generate(ctx, prompt, jsonMode = true)
-        val obj = JSONObject(extractJson(text))
-        val repliesArr = obj.optJSONArray("replies") ?: JSONArray()
+        val arr = parseArray(text)
         val replies = ArrayList<Reply>()
-        for (i in 0 until repliesArr.length()) {
-            // Accept both the new object form and, defensively, a plain string.
-            val item = repliesArr.opt(i)
+        for (i in 0 until arr.length()) {
+            val item = arr.opt(i)
             if (item is JSONObject) {
                 val en = item.optString("english").trim()
                 val ur = item.optString("urdu").trim()
                 if (en.isNotEmpty()) replies.add(Reply(en, ur))
             } else {
-                val en = repliesArr.optString(i).trim()
+                val en = arr.optString(i).trim()
                 if (en.isNotEmpty()) replies.add(Reply(en, ""))
             }
         }
-        return Analysis(obj.optString("urdu").trim(), replies)
+        return replies
+    }
+
+    private fun parseArray(text: String): JSONArray {
+        val t = text.trim()
+        val start = t.indexOf('[')
+        val end = t.lastIndexOf(']')
+        if (start >= 0 && end > start) return JSONArray(t.substring(start, end + 1))
+        // Some models wrap the array in an object like {"replies": [...]}.
+        val obj = JSONObject(extractJson(t))
+        return obj.optJSONArray("replies") ?: JSONArray()
     }
 
     fun urduToEnglish(ctx: Context, urdu: String): String {
@@ -69,7 +88,7 @@ object GeminiClient {
 
     /** Quick connectivity/key test. Throws on failure. */
     fun test(ctx: Context) {
-        analyzeMessage(ctx, "Hello, how are you?")
+        explainUrdu(ctx, "Hello, how are you?")
     }
 
     /**

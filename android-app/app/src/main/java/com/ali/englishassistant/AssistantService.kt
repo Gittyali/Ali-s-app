@@ -1,13 +1,15 @@
 package com.ali.englishassistant
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
@@ -46,11 +48,35 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         if (key == Prefs.KEY_ENABLED) main.post { applyEnabledState() }
     }
 
+    // When the screen turns off, hide the bubble (and stop reading). Bring it
+    // back when the phone wakes — without changing the user's on/off choice.
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> main.post { hideBubbleTransient() }
+                Intent.ACTION_USER_PRESENT, Intent.ACTION_SCREEN_ON ->
+                    main.post { applyEnabledState() }
+            }
+        }
+    }
+
     override fun onServiceConnected() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         tts = TextToSpeech(this, this)
         Prefs.prefs(this).registerOnSharedPreferenceChangeListener(prefsListener)
+        registerReceiver(screenReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        })
         applyEnabledState()
+    }
+
+    /** Remove the bubble and any panel without touching the user's on/off pref. */
+    private fun hideBubbleTransient() {
+        removePanel()
+        bubble?.let { runCatching { wm.removeView(it) } }
+        bubble = null
     }
 
     /** Show the bubble when enabled; hide it (and any open panel) when paused. */
@@ -76,6 +102,7 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         runCatching { Prefs.prefs(this).unregisterOnSharedPreferenceChangeListener(prefsListener) }
+        runCatching { unregisterReceiver(screenReceiver) }
         removePanel()
         bubble?.let { runCatching { wm.removeView(it) } }
         bubble = null
@@ -172,56 +199,23 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
 
     // ---------------- Screen reading ----------------
 
-    // A text node on screen with the info we need to order it.
-    private data class Bubble(val text: String, val top: Int, val incoming: Boolean)
-
-    /**
-     * Returns customer (incoming) messages only, newest first. Incoming vs
-     * outgoing is decided by which side of the screen the bubble hugs:
-     * customer bubbles sit on the left, uncle's own on the right. Uncle's
-     * own messages are dropped so he never scrolls past them.
-     */
     private fun collectVisibleTexts(): List<String> {
         val root = rootInActiveWindow ?: return emptyList()
-        val screenWidth = resources.displayMetrics.widthPixels
-        val bubbles = ArrayList<Bubble>()
-        val seen = HashSet<String>()
-        walk(root, bubbles, seen, screenWidth, 0)
-
-        val incoming = bubbles.filter { it.incoming }
-        // If side detection found nothing (unusual layout), fall back to all text.
-        val chosen = if (incoming.isNotEmpty()) incoming else bubbles
-        return chosen
-            .sortedByDescending { it.top }   // bottom of screen = newest = first
-            .map { it.text }
-            .take(6)
+        val out = LinkedHashSet<String>()
+        walk(root, out, 0)
+        return out.filter { it.length in 2..500 }
+            .filterNot { it.matches(Regex("^[\\d:. /,-]+$")) }  // timestamps etc.
+            .takeLast(6)
+            .reversed()  // newest (bottom of screen) first
     }
 
-    private fun walk(
-        node: AccessibilityNodeInfo?,
-        out: MutableList<Bubble>,
-        seen: MutableSet<String>,
-        screenWidth: Int,
-        depth: Int
-    ) {
+    private fun walk(node: AccessibilityNodeInfo?, out: MutableSet<String>, depth: Int) {
         if (node == null || depth > 40) return
         if (node.isVisibleToUser && !node.isEditable && !node.isPassword) {
             val t = node.text?.toString()?.trim()
-            if (!t.isNullOrEmpty() &&
-                t.length in 2..500 &&
-                !t.matches(Regex("^[\\d:. /,-]+$")) &&   // timestamps etc.
-                seen.add(t)
-            ) {
-                val r = Rect()
-                node.getBoundsInScreen(r)
-                // Hugs the right edge more than the left → uncle's own message.
-                val distLeft = r.left
-                val distRight = screenWidth - r.right
-                val incoming = distLeft <= distRight
-                out.add(Bubble(t, r.top, incoming))
-            }
+            if (!t.isNullOrEmpty()) out.add(t)
         }
-        for (i in 0 until node.childCount) walk(node.getChild(i), out, seen, screenWidth, depth + 1)
+        for (i in 0 until node.childCount) walk(node.getChild(i), out, depth + 1)
     }
 
     private fun findChatInput(): AccessibilityNodeInfo? {
@@ -330,52 +324,75 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     }
 
     /**
-     * Renders one suggested reply: a wide tappable chip with the English text
-     * (tap = type it into the chat) and a small 🔊 button that speaks the reply's
-     * Urdu meaning so uncle understands it before sending.
+     * Renders one suggested reply inside a bordered box:
+     *  - the English reply text (tap = type it into the chat)
+     *  - its Urdu meaning as readable text (so uncle can read it)
+     *  - a 🔊 button to hear the Urdu meaning (falls back to the text if voice fails)
      */
     private fun addReply(reply: GeminiClient.Reply) {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.chip_bg)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
             val p = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             )
             p.topMargin = dp(8)
             layoutParams = p
         }
-        val chip = TextView(this).apply {
+
+        // English reply — tap to type into chat.
+        box.addView(TextView(this).apply {
             text = reply.english
             textSize = 16f
             setTextColor(Color.BLACK)
-            setBackgroundResource(R.drawable.chip_bg)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
             setOnClickListener { insertIntoChat(reply.english) }
-        }
-        row.addView(chip)
+        })
+
         if (reply.urdu.isNotBlank()) {
-            val listen = TextView(this).apply {
-                text = "🔊"
-                textSize = 18f
-                gravity = Gravity.CENTER
-                setBackgroundResource(R.drawable.chip_grey_bg)
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                val p = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT
-                )
-                p.leftMargin = dp(6)
-                layoutParams = p
-                setOnClickListener { speakUrdu(reply.urdu) }
-            }
-            row.addView(listen)
+            // Urdu meaning — readable text.
+            box.addView(TextView(this).apply {
+                text = reply.urdu
+                textSize = 15f
+                setTextColor(Color.parseColor("#1B7A43"))
+                textDirection = View.TEXT_DIRECTION_RTL
+                setPadding(0, dp(4), 0, dp(4))
+            })
         }
-        panelContent?.addView(row)
+
+        // Action row: type it / listen.
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        actions.addView(TextView(this).apply {
+            text = "✍️ چیٹ میں لکھیں • Type"
+            textSize = 14f
+            setTextColor(Color.parseColor("#1B7A43"))
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, dp(6), dp(16), dp(2))
+            setOnClickListener { insertIntoChat(reply.english) }
+        })
+        if (reply.urdu.isNotBlank()) {
+            actions.addView(TextView(this).apply {
+                text = "🔊 سنیں • Listen"
+                textSize = 14f
+                setTextColor(Color.parseColor("#1B7A43"))
+                setTypeface(null, Typeface.BOLD)
+                setPadding(0, dp(6), 0, dp(2))
+                setOnClickListener { speakUrdu(reply.urdu) }
+            })
+        }
+        box.addView(actions)
+        panelContent?.addView(box)
     }
 
     // ---------------- Flows ----------------
 
     private fun showMessageList(messages: List<String>) {
-        setPanelTitle("کسٹمر کا پیغام منتخب کریں • Choose a customer message")
+        setPanelTitle("پیغام منتخب کریں • Choose a message")
         clearContent()
         for (m in messages) {
             val label = if (m.length > 120) m.take(120) + "…" else m
@@ -404,13 +421,13 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             addNote(note)
             return
         }
+        // STEP 1 — fetch and show the Urdu meaning quickly, on its own.
         setPanelTitle("سمجھ رہا ہوں… • Understanding…")
         clearContent()
         addNote("⏳ …")
         Thread {
-            try {
-                val result = GeminiClient.analyzeMessage(this, safe.text)
-                main.post { showResult(message, result, safe.redacted) }
+            val urdu = try {
+                GeminiClient.explainUrdu(this, safe.text)
             } catch (e: Exception) {
                 main.post {
                     setPanelTitle("مسئلہ ہو گیا • Error")
@@ -418,26 +435,50 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
                     addNote("${e.message}\n\nانٹرنیٹ چیک کریں • Check internet", Color.RED)
                     addChip("🔄 دوبارہ کوشش کریں • Try again") { analyze(message) }
                 }
+                return@Thread
             }
+            main.post { showMeaning(message, urdu, safe.redacted) }
+            // STEP 2 — fetch the suggested replies and append them.
+            val replies = try {
+                GeminiClient.suggestReplies(this, safe.text)
+            } catch (e: Exception) {
+                emptyList()
+            }
+            main.post { showReplies(replies) }
         }.start()
     }
 
-    private fun showResult(original: String, result: GeminiClient.Analysis, redacted: Boolean = false) {
+    private var repliesLoadingView: TextView? = null
+    private var currentMessage: String = ""
+
+    private fun showMeaning(original: String, urdu: String, redacted: Boolean) {
         if (panel == null) return
+        currentMessage = original
         setPanelTitle("مطلب • Meaning")
         clearContent()
         if (redacted) {
             addNote("🔒 حساس نمبر چھپا کر بھیجے گئے • Sensitive numbers were hidden", Color.parseColor("#1B7A43"), 12f)
         }
         addNote("“${if (original.length > 90) original.take(90) + "…" else original}”", Color.GRAY, 13f)
-        val urduView = addNote(result.urdu, Color.BLACK, 19f)
+        val urduView = addNote(urdu, Color.BLACK, 19f)
         urduView.textDirection = View.TEXT_DIRECTION_RTL
 
-        addChip("🔊 سنیں • Listen") { speakUrdu(result.urdu) }
+        addChip("🔊 سنیں • Listen") { speakUrdu(urdu) }
 
-        addNote("جواب منتخب کریں — خود چیٹ میں لکھا جائے گا\nPick a reply — it will be typed into the chat:", Color.parseColor("#1B7A43"), 14f)
-        for (r in result.replies) {
-            addReply(r)
+        // Placeholder while the replies load in the background.
+        repliesLoadingView = addNote("⏳ جواب تیار ہو رہے ہیں… • Preparing replies…", Color.GRAY, 14f)
+    }
+
+    private fun showReplies(replies: List<GeminiClient.Reply>) {
+        if (panel == null) return
+        repliesLoadingView?.let { panelContent?.removeView(it) }
+        repliesLoadingView = null
+
+        if (replies.isEmpty()) {
+            addNote("جواب تیار نہیں ہو سکے — آپ اپنا جواب بول سکتے ہیں\nReplies unavailable — you can speak your own reply", Color.GRAY, 14f)
+        } else {
+            addNote("جواب منتخب کریں — خود چیٹ میں لکھا جائے گا\nPick a reply — it will be typed into the chat:", Color.parseColor("#1B7A43"), 14f)
+            for (r in replies) addReply(r)
         }
         addChip("🎤 اپنا جواب اردو میں بولیں • Speak your own reply in Urdu", grey = true) {
             startListening()
@@ -445,10 +486,12 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     }
 
     private fun speakUrdu(text: String) {
+        // If Urdu voice isn't available, don't error — the text is already on
+        // screen for the user to read.
         if (ttsReady) {
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "urdu")
         } else {
-            toast("اردو آواز دستیاب نہیں — فون کی TTS سیٹنگز میں اردو انسٹال کریں\nUrdu voice not installed on this phone")
+            toast("اردو آواز دستیاب نہیں — تحریر پڑھ لیں\nUrdu voice not available — please read the text")
         }
     }
 
