@@ -73,14 +73,22 @@ object GeminiClient {
         return try {
             call(key, Prefs.model(ctx), prompt, jsonMode)
         } catch (e: ModelUnavailableException) {
-            val newModel = discoverModel(key)
-            Prefs.saveModel(ctx, newModel)
-            call(key, newModel, prompt, jsonMode)
+            var lastError: Exception = e
+            for (candidate in discoverModels(key)) {
+                try {
+                    val result = call(key, candidate, prompt, jsonMode)
+                    Prefs.saveModel(ctx, candidate)
+                    return result
+                } catch (err: ModelUnavailableException) {
+                    lastError = err
+                }
+            }
+            throw lastError
         }
     }
 
-    /** Asks the API for available models and picks the best free "flash" model. */
-    private fun discoverModel(apiKey: String): String {
+    /** Asks the API for available models; best free "flash" candidates first. */
+    private fun discoverModels(apiKey: String): List<String> {
         val url = URL("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200")
         val conn = url.openConnection() as HttpURLConnection
         val resp = try {
@@ -96,7 +104,7 @@ object GeminiClient {
         }
 
         val models = JSONObject(resp).optJSONArray("models") ?: JSONArray()
-        data class Candidate(val name: String, val version: Double, val lite: Boolean)
+        data class Candidate(val name: String, val version: Double, val lite: Boolean, val latest: Boolean)
         val candidates = ArrayList<Candidate>()
         for (i in 0 until models.length()) {
             val m = models.getJSONObject(i)
@@ -105,17 +113,20 @@ object GeminiClient {
             if (!methods.contains("generateContent")) continue
             if (!name.contains("flash")) continue
             // Skip specialised variants that don't do plain text chat well.
-            if (listOf("image", "tts", "audio", "live", "embedding", "exp", "preview", "thinking")
+            if (listOf("image", "tts", "audio", "live", "embedding", "exp", "preview", "thinking", "omni", "robotics")
                     .any { name.contains(it) }) continue
             val version = Regex("gemini-(\\d+(?:\\.\\d+)?)").find(name)
                 ?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
-            candidates.add(Candidate(name, version, name.contains("lite")))
+            candidates.add(Candidate(name, version, name.contains("lite"), name.endsWith("-latest")))
         }
-        val best = candidates
-            .sortedWith(compareByDescending<Candidate> { it.version }.thenBy { it.lite })
-            .firstOrNull()
-            ?: throw IOException("No usable model found for this API key")
-        return best.name
+        if (candidates.isEmpty()) throw IOException("No usable model found for this API key")
+        // "-latest" aliases first (never retired), then newest version, non-lite before lite.
+        return candidates
+            .sortedWith(compareByDescending<Candidate> { it.latest }
+                .thenByDescending { it.version }
+                .thenBy { it.lite })
+            .map { it.name }
+            .take(4)
     }
 
     private fun call(apiKey: String, model: String, prompt: String, jsonMode: Boolean): String {

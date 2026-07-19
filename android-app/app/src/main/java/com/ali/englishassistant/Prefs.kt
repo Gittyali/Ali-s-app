@@ -6,7 +6,8 @@ object Prefs {
     private const val FILE = "assistant_prefs"
     private const val KEY_API = "api_key"
     private const val KEY_MODEL = "model"
-    const val DEFAULT_MODEL = "gemini-3-flash"
+    // Rolling alias maintained by Google — always points to the newest flash model.
+    const val DEFAULT_MODEL = "gemini-flash-latest"
 
     fun apiKey(ctx: Context): String =
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY_API, "") ?: ""
