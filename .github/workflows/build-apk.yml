@@ -1,0 +1,55 @@
+name: Build English Assistant APK
+
+on:
+  push:
+    branches:
+      - claude/english-message-assistant-app-338jz5
+      - main
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.9'
+
+      - name: Build debug APK
+        run: gradle -p android-app assembleDebug
+
+      - name: Rename APK
+        run: cp android-app/app/build/outputs/apk/debug/app-debug.apk EnglishAssistant.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnglishAssistant-apk
+          path: EnglishAssistant.apk
+
+      - name: Publish to "app-latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-latest
+          name: English Assistant — latest APK
+          body: |
+            Latest build of the English Assistant Android app.
+            Download **EnglishAssistant.apk** below and install it on the phone.
+            Setup guide: see `android-app/SETUP_GUIDE.md` in the repository.
+          files: EnglishAssistant.apk

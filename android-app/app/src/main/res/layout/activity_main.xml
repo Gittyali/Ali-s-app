@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="English Assistant\nانگلش اسسٹنٹ"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:textColor="#1B7A43" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="1. Gemini API Key (aistudio.google.com)"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/apiKeyInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Paste API key here • API کلید یہاں لگائیں"
+            android:inputType="textVisiblePassword"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Model (leave as is • ایسے ہی رہنے دیں)"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/modelInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="gemini-2.5-flash"
+            android:inputType="textVisiblePassword"
+            android:importantForAutofill="no" />
+
+        <Button
+            android:id="@+id/saveBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Save • محفوظ کریں" />
+
+        <Button
+            android:id="@+id/testBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Test key • کلید ٹیسٹ کریں" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="2. Microphone permission (for Urdu voice replies)"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/micBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Allow microphone • مائیک کی اجازت دیں" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="3. Turn on the assistant (Accessibility)"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/accessBtn"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Open Accessibility settings • سروس آن کریں" />
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:textSize="16sp"
+            android:text="" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:textColor="#555555"
+            android:text="How to use: open any chat (WhatsApp, TikTok, Instagram, Facebook) and tap the green 💬 bubble. Pick the customer message — the app explains it in Urdu and suggests English replies. Tap a reply and it is typed into the chat box for you; you just press Send.\n\nطریقہ: کوئی بھی چیٹ کھولیں اور سبز 💬 بٹن دبائیں۔ کسٹمر کا پیغام منتخب کریں — ایپ اردو میں سمجھائے گی اور انگریزی جواب تجویز کرے گی۔ جواب پر ٹیپ کریں، وہ خود چیٹ باکس میں لکھا جائے گا، آپ صرف Send دبائیں۔" />
+    </LinearLayout>
+</ScrollView>

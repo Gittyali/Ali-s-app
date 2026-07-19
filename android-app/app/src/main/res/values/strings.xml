@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">English Assistant • انگلش اسسٹنٹ</string>
+    <string name="service_label">English Assistant • انگلش اسسٹنٹ</string>
+    <string name="service_description">Reads English chat messages on screen, explains them in Urdu, and helps type English replies. یہ سروس اسکرین پر انگریزی پیغامات پڑھ کر اردو میں سمجھاتی ہے اور انگریزی جواب لکھنے میں مدد کرتی ہے۔</string>
+</resources>
