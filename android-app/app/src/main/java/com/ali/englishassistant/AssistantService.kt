@@ -69,6 +69,8 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
         })
+        // Pre-download the offline translation models so the first use is fast.
+        Thread { runCatching { Translator.warmUp() } }.start()
         applyEnabledState()
     }
 
@@ -329,7 +331,7 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
      *  - its Urdu meaning as readable text (so uncle can read it)
      *  - a 🔊 button to hear the Urdu meaning (falls back to the text if voice fails)
      */
-    private fun addReply(reply: GeminiClient.Reply) {
+    private fun addReply(reply: ReplyItem) {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundResource(R.drawable.chip_bg)
@@ -421,61 +423,56 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             addNote(note)
             return
         }
-        // STEP 1 — fetch and show the Urdu meaning quickly, on its own.
-        setPanelTitle("سمجھ رہا ہوں… • Understanding…")
+        // STEP 1 — translate the customer's message to Urdu OFFLINE (instant,
+        // always works, no quota). STEP 2 — AI suggests English replies.
+        setPanelTitle("ترجمہ ہو رہا ہے… • Translating…")
         clearContent()
         addNote("⏳ …")
         Thread {
-            val urdu = try {
-                GeminiClient.explainUrdu(this, safe.text)
-            } catch (e: Exception) {
-                main.post {
-                    setPanelTitle("مسئلہ ہو گیا • Error")
-                    clearContent()
-                    addNote("${e.message}\n\nانٹرنیٹ چیک کریں • Check internet", Color.RED)
-                    addChip("🔄 دوبارہ کوشش کریں • Try again") { analyze(message) }
-                }
-                return@Thread
-            }
+            val urdu = runCatching { Translator.toUrdu(message) }.getOrNull()
             main.post { showMeaning(message, urdu, safe.redacted) }
-            // STEP 2 — fetch the suggested replies and append them.
-            val replies = try {
-                GeminiClient.suggestReplies(this, safe.text)
-            } catch (e: Exception) {
-                emptyList()
-            }
-            main.post { showReplies(replies) }
+
+            // Only the reply suggestions use the AI. Translate them to Urdu offline.
+            val replyItems = runCatching {
+                GeminiClient.suggestReplies(this, safe.text).map { en ->
+                    ReplyItem(en, runCatching { Translator.toUrdu(en) }.getOrDefault(""))
+                }
+            }.getOrDefault(emptyList())
+            main.post { showReplies(replyItems) }
         }.start()
     }
 
-    private var repliesLoadingView: TextView? = null
-    private var currentMessage: String = ""
+    private data class ReplyItem(val english: String, val urdu: String)
 
-    private fun showMeaning(original: String, urdu: String, redacted: Boolean) {
+    private var repliesLoadingView: TextView? = null
+
+    private fun showMeaning(original: String, urdu: String?, redacted: Boolean) {
         if (panel == null) return
-        currentMessage = original
-        setPanelTitle("مطلب • Meaning")
+        setPanelTitle("ترجمہ • Translation")
         clearContent()
         if (redacted) {
             addNote("🔒 حساس نمبر چھپا کر بھیجے گئے • Sensitive numbers were hidden", Color.parseColor("#1B7A43"), 12f)
         }
         addNote("“${if (original.length > 90) original.take(90) + "…" else original}”", Color.GRAY, 13f)
-        val urduView = addNote(urdu, Color.BLACK, 19f)
-        urduView.textDirection = View.TEXT_DIRECTION_RTL
+        if (urdu.isNullOrBlank()) {
+            addNote("ترجمہ ڈاؤن لوڈ کے لیے ایک بار انٹرنیٹ آن کریں، پھر دوبارہ ٹیپ کریں\nTurn on internet once so the translator can download, then tap again.", Color.RED, 15f)
+        } else {
+            val urduView = addNote(urdu, Color.BLACK, 19f)
+            urduView.textDirection = View.TEXT_DIRECTION_RTL
+            addChip("🔊 سنیں • Listen") { speakUrdu(urdu) }
+        }
 
-        addChip("🔊 سنیں • Listen") { speakUrdu(urdu) }
-
-        // Placeholder while the replies load in the background.
+        // Placeholder while the AI replies load in the background.
         repliesLoadingView = addNote("⏳ جواب تیار ہو رہے ہیں… • Preparing replies…", Color.GRAY, 14f)
     }
 
-    private fun showReplies(replies: List<GeminiClient.Reply>) {
+    private fun showReplies(replies: List<ReplyItem>) {
         if (panel == null) return
         repliesLoadingView?.let { panelContent?.removeView(it) }
         repliesLoadingView = null
 
         if (replies.isEmpty()) {
-            addNote("جواب تیار نہیں ہو سکے — آپ اپنا جواب بول سکتے ہیں\nReplies unavailable — you can speak your own reply", Color.GRAY, 14f)
+            addNote("تجویز کردہ جواب ابھی دستیاب نہیں (AI مصروف ہے) — آپ اپنا جواب بول سکتے ہیں\nSuggested replies unavailable right now (AI busy) — you can speak your own reply", Color.GRAY, 14f)
         } else {
             addNote("جواب منتخب کریں — خود چیٹ میں لکھا جائے گا\nPick a reply — it will be typed into the chat:", Color.parseColor("#1B7A43"), 14f)
             for (r in replies) addReply(r)
@@ -593,24 +590,23 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         clearContent()
         addNote("آپ نے کہا: $urdu", Color.GRAY, 14f)
         Thread {
-            try {
-                val english = GeminiClient.urduToEnglish(this, urdu)
-                main.post {
-                    if (panel == null) return@post
-                    setPanelTitle("انگریزی جواب • English reply")
-                    clearContent()
-                    addNote("آپ نے کہا: $urdu", Color.GRAY, 14f)
-                    addNote(english, Color.BLACK, 17f)
-                    addChip("✍️ چیٹ میں لکھیں • Type into chat") { insertIntoChat(english) }
-                    addChip("🎤 دوبارہ بولیں • Speak again", grey = true) { startListening() }
-                }
-            } catch (e: Exception) {
-                main.post {
+            // Offline Urdu → English translation (no AI, no quota).
+            val english = runCatching { Translator.toEnglish(urdu) }.getOrNull()
+            main.post {
+                if (panel == null) return@post
+                if (english.isNullOrBlank()) {
                     setPanelTitle("مسئلہ ہو گیا • Error")
                     clearContent()
-                    addNote("${e.message}", Color.RED)
+                    addNote("ترجمہ ڈاؤن لوڈ کے لیے ایک بار انٹرنیٹ آن کریں\nTurn on internet once so the translator can download.", Color.RED)
                     addChip("🎤 دوبارہ کوشش کریں • Try again") { startListening() }
+                    return@post
                 }
+                setPanelTitle("انگریزی جواب • English reply")
+                clearContent()
+                addNote("آپ نے کہا: $urdu", Color.GRAY, 14f)
+                addNote(english, Color.BLACK, 17f)
+                addChip("✍️ چیٹ میں لکھیں • Type into chat") { insertIntoChat(english) }
+                addChip("🎤 دوبارہ بولیں • Speak again", grey = true) { startListening() }
             }
         }.start()
     }

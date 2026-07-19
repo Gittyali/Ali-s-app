@@ -6,6 +6,11 @@ chosen reply straight into the chat box.
 
 ---
 
+## How translation works (important)
+
+- **Translating messages (and replies) English↔Urdu is done offline, on the phone** — no API, no quota, no error. The first time, it downloads a ~30MB Urdu language pack (needs internet once); after that it works instantly, even offline.
+- **The AI (Gemini) is used ONLY to suggest the 2 replies.** If the free AI quota is ever hit (error 429), translation and understanding keep working — only the auto-suggested replies pause, and uncle can still record his own reply.
+
 ## Part 1 — Get a free Gemini API key (do this once, on any device)
 
 1. Go to **https://aistudio.google.com** and sign in with a Google account.
@@ -48,7 +53,7 @@ These phones kill background apps, which makes the bubble disappear. Do both:
 | 1 | Open any chat (WhatsApp / TikTok / Instagram / Facebook) | کوئی بھی چیٹ کھولیں |
 | 2 | Tap the green 💬 bubble | سبز 💬 بٹن دبائیں |
 | 3 | Tap the customer's message (the list shows customer messages only, newest first) | کسٹمر کا پیغام منتخب کریں |
-| 4 | Read the Urdu meaning, or tap 🔊 to hear it | مطلب اردو میں پڑھیں یا 🔊 سے سنیں |
+| 4 | Read the Urdu translation (instant, offline), or tap 🔊 to hear it | اردو ترجمہ پڑھیں یا 🔊 سے سنیں |
 | 5 | Each suggested reply shows its Urdu meaning (read it), a 🔊 to hear it, and ✍️ Type to put it in the chat box | ہر جواب کا اردو مطلب لکھا ہوتا ہے، 🔊 سے سنیں، ✍️ سے چیٹ میں لکھیں |
 | 6 | Press **Send** | Send دبائیں |
 

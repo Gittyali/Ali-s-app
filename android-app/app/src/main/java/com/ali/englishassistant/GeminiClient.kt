@@ -14,27 +14,16 @@ import java.net.URL
  */
 object GeminiClient {
 
-    /** One suggested reply: the English text to send, plus its Urdu meaning. */
-    data class Reply(val english: String, val urdu: String)
-
     /** Thrown when the configured model has been retired/renamed by Google (HTTP 404). */
     private class ModelUnavailableException(msg: String) : IOException(msg)
 
-    /** STEP 1 (fast): just the Urdu meaning of the customer's message. */
-    fun explainUrdu(ctx: Context, message: String): String {
-        val prompt = """
-            A Pakistani exporter who does not understand English received this chat message from a customer:
-
-            "$message"
-
-            In simple, natural Urdu (Urdu script), explain what the customer is saying or asking.
-            Keep it short — 1 to 2 sentences. Reply with ONLY the Urdu text, nothing else.
-        """.trimIndent()
-        return generate(ctx, prompt, jsonMode = false).trim().trim('"')
-    }
-
-    /** STEP 2: two professional English replies, each with its Urdu meaning. */
-    fun suggestReplies(ctx: Context, message: String): List<Reply> {
+    /**
+     * The ONLY use of AI in the app: suggest 2 English replies to the customer's
+     * message. Translation to Urdu is done on-device (offline), not here, so a
+     * quota error here never breaks translation — it only pauses suggestions.
+     * Returns the English reply strings.
+     */
+    fun suggestReplies(ctx: Context, message: String): List<String> {
         val prompt = """
             A Pakistani exporter received this chat message from a customer:
 
@@ -42,24 +31,19 @@ object GeminiClient {
 
             Suggest exactly 2 short, polite, professional one-line English replies he could send back.
             Make them different from each other (e.g. one positive/accepting, one asking for a detail).
-            Reply ONLY with a JSON array, no other text, in this exact shape:
-            [{"english": "...", "urdu": "..."}, {"english": "...", "urdu": "..."}]
-            where "english" is the reply to send and "urdu" is a short Urdu-script meaning of that reply. No emojis.
+            Reply ONLY with a JSON array of 2 strings, no other text, like:
+            ["reply one", "reply two"]
+            No emojis, no extra keys.
         """.trimIndent()
 
         val text = generate(ctx, prompt, jsonMode = true)
         val arr = parseArray(text)
-        val replies = ArrayList<Reply>()
+        val replies = ArrayList<String>()
         for (i in 0 until arr.length()) {
             val item = arr.opt(i)
-            if (item is JSONObject) {
-                val en = item.optString("english").trim()
-                val ur = item.optString("urdu").trim()
-                if (en.isNotEmpty()) replies.add(Reply(en, ur))
-            } else {
-                val en = arr.optString(i).trim()
-                if (en.isNotEmpty()) replies.add(Reply(en, ""))
-            }
+            val en = if (item is JSONObject) item.optString("english").trim()
+                     else arr.optString(i).trim()
+            if (en.isNotEmpty()) replies.add(en)
         }
         return replies
     }
@@ -74,21 +58,9 @@ object GeminiClient {
         return obj.optJSONArray("replies") ?: JSONArray()
     }
 
-    fun urduToEnglish(ctx: Context, urdu: String): String {
-        val prompt = """
-            A Pakistani exporter wants to reply to a business customer. He said this in Urdu:
-
-            "$urdu"
-
-            Translate it into one short, polite, natural, professional English chat message.
-            Reply with ONLY the English message text — no quotes, no explanation, nothing else.
-        """.trimIndent()
-        return generate(ctx, prompt, jsonMode = false).trim().trim('"')
-    }
-
     /** Quick connectivity/key test. Throws on failure. */
     fun test(ctx: Context) {
-        explainUrdu(ctx, "Hello, how are you?")
+        generate(ctx, "Reply with only the word: OK", jsonMode = false)
     }
 
     /**
