@@ -3,6 +3,7 @@
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:packageNames="com.whatsapp,com.whatsapp.w4b,com.zhiliaoapp.musically,com.ss.android.ugc.trill,com.instagram.android,com.facebook.orca,com.facebook.mlite,com.facebook.katana,com.facebook.lite,org.telegram.messenger,com.imo.android.imoim"
     android:canRetrieveWindowContent="true"
     android:description="@string/service_description"
     android:notificationTimeout="100" />

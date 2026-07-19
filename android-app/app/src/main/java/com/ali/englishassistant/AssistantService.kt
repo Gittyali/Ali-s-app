@@ -113,6 +113,16 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
 
     private fun onBubbleTapped() {
         if (panel != null) { removePanel(); return }
+        // Security: only ever read inside known chat apps. Banking apps,
+        // documents, settings etc. are refused here AND blocked by the
+        // packageNames filter in the accessibility config (OS-enforced).
+        val activePackage = rootInActiveWindow?.packageName?.toString() ?: ""
+        if (activePackage !in ALLOWED_APPS) {
+            showPanel()
+            setPanelTitle("🔒 حفاظت • Protected")
+            addNote("یہ ایپ صرف چیٹ ایپس میں کام کرتی ہے (WhatsApp، TikTok، Instagram، Facebook)۔ باقی ایپس نہیں پڑھی جاتیں۔\n\nFor your safety this assistant only works inside chat apps. It cannot read banking apps, documents, or anything else.")
+            return
+        }
         // Read the chat screen NOW, while the chat app is still the active window.
         val messages = collectVisibleTexts()
         showPanel()
@@ -269,13 +279,22 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             addNote("پہلے ایپ کھول کر API کلید لگائیں\nOpen the app and add your API key first")
             return
         }
+        // Security: scrub card/account/ID numbers before anything leaves the
+        // phone, and refuse to send OTP/password messages at all.
+        val safe = Redactor.clean(message)
+        if (safe.blocked) {
+            setPanelTitle("🔒 حفاظت • Protected")
+            clearContent()
+            addNote("یہ پیغام OTP یا پاس ورڈ لگتا ہے، اس لیے حفاظت کے لیے کہیں نہیں بھیجا گیا۔\n\nThis looks like an OTP/password message, so for your safety it was NOT sent anywhere.")
+            return
+        }
         setPanelTitle("سمجھ رہا ہوں… • Understanding…")
         clearContent()
         addNote("⏳ …")
         Thread {
             try {
-                val result = GeminiClient.analyzeMessage(this, message)
-                main.post { showResult(message, result) }
+                val result = GeminiClient.analyzeMessage(this, safe.text)
+                main.post { showResult(message, result, safe.redacted) }
             } catch (e: Exception) {
                 main.post {
                     setPanelTitle("مسئلہ ہو گیا • Error")
@@ -287,10 +306,13 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         }.start()
     }
 
-    private fun showResult(original: String, result: GeminiClient.Analysis) {
+    private fun showResult(original: String, result: GeminiClient.Analysis, redacted: Boolean = false) {
         if (panel == null) return
         setPanelTitle("مطلب • Meaning")
         clearContent()
+        if (redacted) {
+            addNote("🔒 حساس نمبر چھپا کر بھیجے گئے • Sensitive numbers were hidden", Color.parseColor("#1B7A43"), 12f)
+        }
         addNote("“${if (original.length > 90) original.take(90) + "…" else original}”", Color.GRAY, 13f)
         val urduView = addNote(result.urdu, Color.BLACK, 19f)
         urduView.textDirection = View.TEXT_DIRECTION_RTL
@@ -317,6 +339,13 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     // ---------------- Insert reply into the chat app ----------------
 
     private fun insertIntoChat(text: String) {
+        val activePackage = rootInActiveWindow?.packageName?.toString() ?: ""
+        if (activePackage !in ALLOWED_APPS) {
+            copyToClipboard(text)
+            removePanel()
+            toast("کاپی ہو گیا — چیٹ باکس میں Paste کریں • Copied — paste it in the chat box")
+            return
+        }
         val input = findChatInput()
         if (input != null) {
             input.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
@@ -432,4 +461,21 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     private fun dp(v: Int): Int = (v * density).toInt()
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+
+    companion object {
+        /** The only apps this assistant is allowed to read from or type into. */
+        val ALLOWED_APPS = setOf(
+            "com.whatsapp",                 // WhatsApp
+            "com.whatsapp.w4b",             // WhatsApp Business
+            "com.zhiliaoapp.musically",     // TikTok
+            "com.ss.android.ugc.trill",     // TikTok (Asia build)
+            "com.instagram.android",        // Instagram
+            "com.facebook.orca",            // Messenger
+            "com.facebook.mlite",           // Messenger Lite
+            "com.facebook.katana",          // Facebook
+            "com.facebook.lite",            // Facebook Lite
+            "org.telegram.messenger",       // Telegram
+            "com.imo.android.imoim"         // imo
+        )
+    }
 }

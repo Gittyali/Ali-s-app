@@ -59,6 +59,21 @@ the app shows the English translation → tap **✍️ چیٹ میں لکھیں*
 
 ---
 
+## Security & Privacy — how the app protects you
+
+| Protection | How it works |
+|---|---|
+| **Cannot see other apps** | The assistant is locked (at the Android system level) to chat apps only: WhatsApp, WhatsApp Business, TikTok, Instagram, Messenger, Facebook, Telegram, imo. Banking apps, JazzCash/Easypaisa, documents, gallery, settings — invisible to it. Tapping the bubble anywhere else shows a 🔒 "Protected" notice. |
+| **Sensitive numbers never leave the phone** | Before a message is sent to the AI, the app removes payment-card numbers (checksum-verified), bank account/IBAN numbers, CNIC numbers, and any 14+ digit number, replacing them with placeholders. You'll see "🔒 Sensitive numbers were hidden" when this happens. |
+| **OTP / password messages are blocked** | If a tapped message looks like an OTP or password message, the app refuses to send it anywhere and shows a security notice. |
+| **No storage, no history** | Messages are never saved, logged, or stored. Only the single message you tap is sent — over HTTPS, only to Google's Gemini API — used for that one answer. |
+| **Minimal permissions** | The app has only Internet + Microphone. It has NO permission for contacts, files, photos, SMS, or call logs — Android physically prevents it from reading them. |
+| **No cleartext traffic** | All network traffic is HTTPS-only, enforced in the app configuration. |
+
+**Honest limits you should know:** the one message you tap (after scrubbing) does go to Google's Gemini API to be translated — that's how the AI works. Google's free tier may use API data to improve their services. So the rule for uncle is simple: use it for normal customer chat, and never tap it on something truly secret. The app blocks the dangerous categories automatically, but no app can make sending text to the internet 100% risk-free.
+
+---
+
 ## Troubleshooting
 
 | Problem | Fix |
