@@ -58,6 +58,23 @@ object GeminiClient {
         return obj.optJSONArray("replies") ?: JSONArray()
     }
 
+    /**
+     * On-demand only: a nicer, natural Urdu EXPLANATION of the message (not a
+     * literal translation). Used when uncle taps "Explain better", so it costs
+     * an AI call only when he asks for it.
+     */
+    fun explainUrdu(ctx: Context, message: String): String {
+        val prompt = """
+            A Pakistani exporter who does not understand English received this chat message from a customer:
+
+            "$message"
+
+            In simple, natural Urdu (Urdu script), clearly explain what the customer means or is asking for.
+            Keep it short — 1 to 2 sentences. Reply with ONLY the Urdu text, nothing else.
+        """.trimIndent()
+        return generate(ctx, prompt, jsonMode = false).trim().trim('"')
+    }
+
     /** Quick connectivity/key test. Throws on failure. */
     fun test(ctx: Context) {
         generate(ctx, "Reply with only the word: OK", jsonMode = false)

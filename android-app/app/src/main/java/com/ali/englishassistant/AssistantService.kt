@@ -403,13 +403,6 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     }
 
     private fun analyze(message: String) {
-        val key = Prefs.apiKey(this)
-        if (key.isBlank()) {
-            setPanelTitle("API کلید نہیں ہے • No API key")
-            clearContent()
-            addNote("پہلے ایپ کھول کر API کلید لگائیں\nOpen the app and add your API key first")
-            return
-        }
         // Security: scrub card/account/ID numbers before anything leaves the
         // phone, and refuse to send OTP/password messages at all.
         val safe = Redactor.clean(message)
@@ -423,8 +416,10 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             addNote(note)
             return
         }
+        currentSafeMessage = safe.text
         // STEP 1 — translate the customer's message to Urdu OFFLINE (instant,
-        // always works, no quota). STEP 2 — AI suggests English replies.
+        // always works, no quota). STEP 2 — AI suggests English replies (only
+        // if an API key is set).
         setPanelTitle("ترجمہ ہو رہا ہے… • Translating…")
         clearContent()
         addNote("⏳ …")
@@ -432,6 +427,10 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             val urdu = runCatching { Translator.toUrdu(message) }.getOrNull()
             main.post { showMeaning(message, urdu, safe.redacted) }
 
+            if (Prefs.apiKey(this).isBlank()) {
+                main.post { showReplies(emptyList(), noKey = true) }
+                return@Thread
+            }
             // Only the reply suggestions use the AI. Translate them to Urdu offline.
             val replyItems = runCatching {
                 GeminiClient.suggestReplies(this, safe.text).map { en ->
@@ -445,9 +444,13 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     private data class ReplyItem(val english: String, val urdu: String)
 
     private var repliesLoadingView: TextView? = null
+    private var currentSafeMessage: String = ""
+    private var explainInsertIndex: Int = 0
+    private var explainShown: Boolean = false
 
     private fun showMeaning(original: String, urdu: String?, redacted: Boolean) {
         if (panel == null) return
+        explainShown = false
         setPanelTitle("ترجمہ • Translation")
         clearContent()
         if (redacted) {
@@ -460,18 +463,78 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
             val urduView = addNote(urdu, Color.BLACK, 19f)
             urduView.textDirection = View.TEXT_DIRECTION_RTL
             addChip("🔊 سنیں • Listen") { speakUrdu(urdu) }
+            addChip("🤖 بہتر سمجھائیں (AI) • Explain better", grey = true) { explainBetter() }
         }
 
+        // An on-demand AI explanation (if requested) is inserted right here,
+        // between the buttons above and the replies below.
+        explainInsertIndex = panelContent?.childCount ?: 0
         // Placeholder while the AI replies load in the background.
         repliesLoadingView = addNote("⏳ جواب تیار ہو رہے ہیں… • Preparing replies…", Color.GRAY, 14f)
     }
 
-    private fun showReplies(replies: List<ReplyItem>) {
+    /** On-demand AI explanation of the current message, inserted under the translation. */
+    private fun explainBetter() {
+        if (Prefs.apiKey(this).isBlank()) {
+            toast("AI جواب کے لیے ایپ میں API کلید لگائیں\nAdd an API key in the app for AI")
+            return
+        }
+        toast("⏳ AI سے بہتر وضاحت لے رہے ہیں…")
+        Thread {
+            val better = runCatching { GeminiClient.explainUrdu(this, currentSafeMessage) }.getOrNull()
+            main.post {
+                if (panel == null) return@post
+                if (better.isNullOrBlank()) {
+                    toast("AI ابھی مصروف ہے — تھوڑی دیر بعد کوشش کریں\nAI busy right now — try again shortly")
+                    return@post
+                }
+                val box = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setBackgroundResource(R.drawable.chip_grey_bg)
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    val p = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    p.topMargin = dp(8)
+                    layoutParams = p
+                }
+                box.addView(TextView(this).apply {
+                    text = "🤖 بہتر وضاحت • AI explanation"
+                    textSize = 12f
+                    setTextColor(Color.GRAY)
+                })
+                box.addView(TextView(this).apply {
+                    text = better
+                    textSize = 18f
+                    setTextColor(Color.BLACK)
+                    textDirection = View.TEXT_DIRECTION_RTL
+                    setPadding(0, dp(4), 0, dp(4))
+                })
+                box.addView(TextView(this).apply {
+                    text = "🔊 سنیں • Listen"
+                    textSize = 14f
+                    setTextColor(Color.parseColor("#1B7A43"))
+                    setTypeface(null, Typeface.BOLD)
+                    setOnClickListener { speakUrdu(better) }
+                })
+                // Replace a previous AI explanation if the user taps again.
+                if (explainShown) panelContent?.getChildAt(explainInsertIndex)?.let {
+                    panelContent?.removeViewAt(explainInsertIndex)
+                }
+                panelContent?.addView(box, explainInsertIndex)
+                explainShown = true
+            }
+        }.start()
+    }
+
+    private fun showReplies(replies: List<ReplyItem>, noKey: Boolean = false) {
         if (panel == null) return
         repliesLoadingView?.let { panelContent?.removeView(it) }
         repliesLoadingView = null
 
-        if (replies.isEmpty()) {
+        if (noKey) {
+            addNote("تجویز کردہ جواب کے لیے ایپ میں API کلید لگائیں — یا اپنا جواب بولیں\nAdd an API key in the app for suggested replies — or speak your own", Color.GRAY, 14f)
+        } else if (replies.isEmpty()) {
             addNote("تجویز کردہ جواب ابھی دستیاب نہیں (AI مصروف ہے) — آپ اپنا جواب بول سکتے ہیں\nSuggested replies unavailable right now (AI busy) — you can speak your own reply", Color.GRAY, 14f)
         } else {
             addNote("جواب منتخب کریں — خود چیٹ میں لکھا جائے گا\nPick a reply — it will be typed into the chat:", Color.parseColor("#1B7A43"), 14f)
@@ -546,7 +609,10 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         }
         setPanelTitle("🎤 سن رہا ہوں… اردو میں بولیں • Listening… speak in Urdu")
         clearContent()
-        addNote("بولنا بند کریں تو خود رک جائے گا\nIt stops automatically when you stop speaking")
+        addNote("بولیں، پھر ⏹ دبائیں — یا غلطی ہو تو 🔄 دبا کر دوبارہ شروع کریں\nSpeak, then tap ⏹ to finish — or tap 🔄 to start over if you made a mistake.")
+        // Manual controls so uncle can stop when done, or restart if he errs.
+        addChip("⏹ مکمل • Done / Stop") { recognizer?.stopListening() }
+        addChip("🔄 دوبارہ شروع کریں • Restart", grey = true) { startListening() }
 
         recognizer?.destroy()
         recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {

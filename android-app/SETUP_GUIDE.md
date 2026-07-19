@@ -54,11 +54,13 @@ These phones kill background apps, which makes the bubble disappear. Do both:
 | 2 | Tap the green 💬 bubble | سبز 💬 بٹن دبائیں |
 | 3 | Tap the customer's message (the list shows customer messages only, newest first) | کسٹمر کا پیغام منتخب کریں |
 | 4 | Read the Urdu translation (instant, offline), or tap 🔊 to hear it | اردو ترجمہ پڑھیں یا 🔊 سے سنیں |
+| 4b | If a translation reads awkwardly, tap 🤖 Explain better for a clearer AI explanation (uses 1 AI call, on demand) | 🤖 بہتر سمجھائیں دبائیں |
 | 5 | Each suggested reply shows its Urdu meaning (read it), a 🔊 to hear it, and ✍️ Type to put it in the chat box | ہر جواب کا اردو مطلب لکھا ہوتا ہے، 🔊 سے سنیں، ✍️ سے چیٹ میں لکھیں |
 | 6 | Press **Send** | Send دبائیں |
 
 **To say something in his own words:** tap **🎤 اردو میں بولیں**, speak in Urdu,
-the app shows the English translation → tap **✍️ چیٹ میں لکھیں** → press Send.
+then tap **⏹ Done** when finished (or **🔄 Restart** to start over if he made a
+mistake). The app shows the English translation → tap **✍️ چیٹ میں لکھیں** → press Send.
 
 **To move the bubble:** drag it. **To close the panel:** tap ✕.
 
