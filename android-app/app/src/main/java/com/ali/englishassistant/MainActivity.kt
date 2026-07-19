@@ -46,8 +46,12 @@ class MainActivity : Activity() {
             toast("Testing… • ٹیسٹ ہو رہا ہے…")
             Thread {
                 try {
-                    GeminiClient.test(key, Prefs.model(this))
-                    main.post { toast("✅ Key works! • کلید درست ہے") }
+                    GeminiClient.test(this)
+                    main.post {
+                        toast("✅ Key works! • کلید درست ہے")
+                        // The client may have auto-switched to a newer model.
+                        modelInput.setText(Prefs.model(this))
+                    }
                 } catch (e: Exception) {
                     main.post { toast("❌ ${e.message}") }
                 }

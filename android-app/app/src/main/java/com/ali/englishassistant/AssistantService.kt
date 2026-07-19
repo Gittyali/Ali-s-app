@@ -274,7 +274,7 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         addNote("⏳ …")
         Thread {
             try {
-                val result = GeminiClient.analyzeMessage(key, Prefs.model(this), message)
+                val result = GeminiClient.analyzeMessage(this, message)
                 main.post { showResult(message, result) }
             } catch (e: Exception) {
                 main.post {
@@ -401,13 +401,12 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
     }
 
     private fun translateSpokenUrdu(urdu: String) {
-        val key = Prefs.apiKey(this)
         setPanelTitle("⏳ ترجمہ ہو رہا ہے… • Translating…")
         clearContent()
         addNote("آپ نے کہا: $urdu", Color.GRAY, 14f)
         Thread {
             try {
-                val english = GeminiClient.urduToEnglish(key, Prefs.model(this), urdu)
+                val english = GeminiClient.urduToEnglish(this, urdu)
                 main.post {
                     if (panel == null) return@post
                     setPanelTitle("انگریزی جواب • English reply")

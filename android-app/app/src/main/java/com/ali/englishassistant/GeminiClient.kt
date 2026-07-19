@@ -1,5 +1,6 @@
 package com.ali.englishassistant
 
+import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -15,7 +16,10 @@ object GeminiClient {
 
     data class Analysis(val urdu: String, val replies: List<String>)
 
-    fun analyzeMessage(apiKey: String, model: String, message: String): Analysis {
+    /** Thrown when the configured model has been retired/renamed by Google (HTTP 404). */
+    private class ModelUnavailableException(msg: String) : IOException(msg)
+
+    fun analyzeMessage(ctx: Context, message: String): Analysis {
         val prompt = """
             You are helping a Pakistani exporter who does not understand English.
             A customer sent him this chat message:
@@ -30,7 +34,7 @@ object GeminiClient {
             - "replies": exactly 2 short, polite, professional one-line English replies he could send back. Make them different from each other (e.g. one positive/accepting, one asking for detail). No emojis.
         """.trimIndent()
 
-        val text = call(apiKey, model, prompt, jsonMode = true)
+        val text = generate(ctx, prompt, jsonMode = true)
         val obj = JSONObject(extractJson(text))
         val repliesArr = obj.optJSONArray("replies") ?: JSONArray()
         val replies = ArrayList<String>()
@@ -41,7 +45,7 @@ object GeminiClient {
         return Analysis(obj.optString("urdu").trim(), replies)
     }
 
-    fun urduToEnglish(apiKey: String, model: String, urdu: String): String {
+    fun urduToEnglish(ctx: Context, urdu: String): String {
         val prompt = """
             A Pakistani exporter wants to reply to a business customer. He said this in Urdu:
 
@@ -50,12 +54,68 @@ object GeminiClient {
             Translate it into one short, polite, natural, professional English chat message.
             Reply with ONLY the English message text — no quotes, no explanation, nothing else.
         """.trimIndent()
-        return call(apiKey, model, prompt, jsonMode = false).trim().trim('"')
+        return generate(ctx, prompt, jsonMode = false).trim().trim('"')
     }
 
     /** Quick connectivity/key test. Throws on failure. */
-    fun test(apiKey: String, model: String) {
-        analyzeMessage(apiKey, model, "Hello, how are you?")
+    fun test(ctx: Context) {
+        analyzeMessage(ctx, "Hello, how are you?")
+    }
+
+    /**
+     * Runs the request with the saved model. If Google has retired that model
+     * (404), asks the API which models this key can use, saves the best flash
+     * model, and retries — so the app self-heals when models are renamed.
+     */
+    private fun generate(ctx: Context, prompt: String, jsonMode: Boolean): String {
+        val key = Prefs.apiKey(ctx)
+        if (key.isBlank()) throw IOException("No API key set")
+        return try {
+            call(key, Prefs.model(ctx), prompt, jsonMode)
+        } catch (e: ModelUnavailableException) {
+            val newModel = discoverModel(key)
+            Prefs.saveModel(ctx, newModel)
+            call(key, newModel, prompt, jsonMode)
+        }
+    }
+
+    /** Asks the API for available models and picks the best free "flash" model. */
+    private fun discoverModel(apiKey: String): String {
+        val url = URL("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200")
+        val conn = url.openConnection() as HttpURLConnection
+        val resp = try {
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            conn.setRequestProperty("x-goog-api-key", apiKey)
+            if (conn.responseCode !in 200..299) {
+                throw IOException("Could not list models (HTTP ${conn.responseCode})")
+            }
+            conn.inputStream.bufferedReader().readText()
+        } finally {
+            conn.disconnect()
+        }
+
+        val models = JSONObject(resp).optJSONArray("models") ?: JSONArray()
+        data class Candidate(val name: String, val version: Double, val lite: Boolean)
+        val candidates = ArrayList<Candidate>()
+        for (i in 0 until models.length()) {
+            val m = models.getJSONObject(i)
+            val name = m.optString("name").removePrefix("models/")
+            val methods = m.optJSONArray("supportedGenerationMethods")?.toString() ?: ""
+            if (!methods.contains("generateContent")) continue
+            if (!name.contains("flash")) continue
+            // Skip specialised variants that don't do plain text chat well.
+            if (listOf("image", "tts", "audio", "live", "embedding", "exp", "preview", "thinking")
+                    .any { name.contains(it) }) continue
+            val version = Regex("gemini-(\\d+(?:\\.\\d+)?)").find(name)
+                ?.groupValues?.get(1)?.toDoubleOrNull() ?: 0.0
+            candidates.add(Candidate(name, version, name.contains("lite")))
+        }
+        val best = candidates
+            .sortedWith(compareByDescending<Candidate> { it.version }.thenBy { it.lite })
+            .firstOrNull()
+            ?: throw IOException("No usable model found for this API key")
+        return best.name
     }
 
     private fun call(apiKey: String, model: String, prompt: String, jsonMode: Boolean): String {
@@ -86,6 +146,7 @@ object GeminiClient {
                 val msg = try {
                     JSONObject(err).getJSONObject("error").optString("message")
                 } catch (e: Exception) { err.take(200) }
+                if (code == 404) throw ModelUnavailableException("Model $model unavailable: $msg")
                 throw IOException("API error $code: $msg")
             }
 
