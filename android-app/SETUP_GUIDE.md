@@ -47,9 +47,9 @@ These phones kill background apps, which makes the bubble disappear. Do both:
 |---|---|---|
 | 1 | Open any chat (WhatsApp / TikTok / Instagram / Facebook) | کوئی بھی چیٹ کھولیں |
 | 2 | Tap the green 💬 bubble | سبز 💬 بٹن دبائیں |
-| 3 | Tap the customer's message from the list | کسٹمر کا پیغام منتخب کریں |
+| 3 | Tap the customer's message (the list shows customer messages only, newest first) | کسٹمر کا پیغام منتخب کریں |
 | 4 | Read the Urdu meaning, or tap 🔊 to hear it | مطلب اردو میں پڑھیں یا 🔊 سے سنیں |
-| 5 | Tap one of the 2 suggested English replies — it is typed into the chat box automatically | تجویز کردہ جواب پر ٹیپ کریں — خود لکھا جائے گا |
+| 5 | Tap 🔊 next to a suggested reply to hear its Urdu meaning, then tap the reply to type it into the chat box | جواب کے ساتھ 🔊 دبا کر اردو مطلب سنیں، پھر جواب دبائیں |
 | 6 | Press **Send** | Send دبائیں |
 
 **To say something in his own words:** tap **🎤 اردو میں بولیں**, speak in Urdu,

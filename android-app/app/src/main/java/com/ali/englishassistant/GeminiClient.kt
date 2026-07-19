@@ -14,7 +14,9 @@ import java.net.URL
  */
 object GeminiClient {
 
-    data class Analysis(val urdu: String, val replies: List<String>)
+    /** One suggested reply: the English text to send, plus its Urdu meaning. */
+    data class Reply(val english: String, val urdu: String)
+    data class Analysis(val urdu: String, val replies: List<Reply>)
 
     /** Thrown when the configured model has been retired/renamed by Google (HTTP 404). */
     private class ModelUnavailableException(msg: String) : IOException(msg)
@@ -27,20 +29,28 @@ object GeminiClient {
             "$message"
 
             Reply ONLY with a JSON object, no other text, in this exact shape:
-            {"urdu": "...", "replies": ["...", "..."]}
+            {"urdu": "...", "replies": [{"english": "...", "urdu": "..."}, {"english": "...", "urdu": "..."}]}
 
             Rules:
-            - "urdu": explain in simple, natural Urdu (Urdu script) what the customer is saying or asking. Keep it short (1-2 sentences).
-            - "replies": exactly 2 short, polite, professional one-line English replies he could send back. Make them different from each other (e.g. one positive/accepting, one asking for detail). No emojis.
+            - Top-level "urdu": explain in simple, natural Urdu (Urdu script) what the customer is saying or asking. Keep it short (1-2 sentences).
+            - "replies": exactly 2 options. Each has "english" (a short, polite, professional one-line English reply he could send) and "urdu" (a short Urdu-script meaning of that same reply, so he understands what it says). Make the two replies different from each other (e.g. one positive/accepting, one asking for detail). No emojis.
         """.trimIndent()
 
         val text = generate(ctx, prompt, jsonMode = true)
         val obj = JSONObject(extractJson(text))
         val repliesArr = obj.optJSONArray("replies") ?: JSONArray()
-        val replies = ArrayList<String>()
+        val replies = ArrayList<Reply>()
         for (i in 0 until repliesArr.length()) {
-            val r = repliesArr.optString(i).trim()
-            if (r.isNotEmpty()) replies.add(r)
+            // Accept both the new object form and, defensively, a plain string.
+            val item = repliesArr.opt(i)
+            if (item is JSONObject) {
+                val en = item.optString("english").trim()
+                val ur = item.optString("urdu").trim()
+                if (en.isNotEmpty()) replies.add(Reply(en, ur))
+            } else {
+                val en = repliesArr.optString(i).trim()
+                if (en.isNotEmpty()) replies.add(Reply(en, ""))
+            }
         }
         return Analysis(obj.optString("urdu").trim(), replies)
     }

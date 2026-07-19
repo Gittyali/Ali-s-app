@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
@@ -171,23 +172,56 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
 
     // ---------------- Screen reading ----------------
 
+    // A text node on screen with the info we need to order it.
+    private data class Bubble(val text: String, val top: Int, val incoming: Boolean)
+
+    /**
+     * Returns customer (incoming) messages only, newest first. Incoming vs
+     * outgoing is decided by which side of the screen the bubble hugs:
+     * customer bubbles sit on the left, uncle's own on the right. Uncle's
+     * own messages are dropped so he never scrolls past them.
+     */
     private fun collectVisibleTexts(): List<String> {
         val root = rootInActiveWindow ?: return emptyList()
-        val out = LinkedHashSet<String>()
-        walk(root, out, 0)
-        return out.filter { it.length in 2..500 }
-            .filterNot { it.matches(Regex("^[\\d:. /,-]+$")) }  // timestamps etc.
-            .takeLast(6)
-            .reversed()  // newest (bottom of screen) first
+        val screenWidth = resources.displayMetrics.widthPixels
+        val bubbles = ArrayList<Bubble>()
+        val seen = HashSet<String>()
+        walk(root, bubbles, seen, screenWidth, 0)
+
+        val incoming = bubbles.filter { it.incoming }
+        // If side detection found nothing (unusual layout), fall back to all text.
+        val chosen = if (incoming.isNotEmpty()) incoming else bubbles
+        return chosen
+            .sortedByDescending { it.top }   // bottom of screen = newest = first
+            .map { it.text }
+            .take(6)
     }
 
-    private fun walk(node: AccessibilityNodeInfo?, out: MutableSet<String>, depth: Int) {
+    private fun walk(
+        node: AccessibilityNodeInfo?,
+        out: MutableList<Bubble>,
+        seen: MutableSet<String>,
+        screenWidth: Int,
+        depth: Int
+    ) {
         if (node == null || depth > 40) return
         if (node.isVisibleToUser && !node.isEditable && !node.isPassword) {
             val t = node.text?.toString()?.trim()
-            if (!t.isNullOrEmpty()) out.add(t)
+            if (!t.isNullOrEmpty() &&
+                t.length in 2..500 &&
+                !t.matches(Regex("^[\\d:. /,-]+$")) &&   // timestamps etc.
+                seen.add(t)
+            ) {
+                val r = Rect()
+                node.getBoundsInScreen(r)
+                // Hugs the right edge more than the left → uncle's own message.
+                val distLeft = r.left
+                val distRight = screenWidth - r.right
+                val incoming = distLeft <= distRight
+                out.add(Bubble(t, r.top, incoming))
+            }
         }
-        for (i in 0 until node.childCount) walk(node.getChild(i), out, depth + 1)
+        for (i in 0 until node.childCount) walk(node.getChild(i), out, seen, screenWidth, depth + 1)
     }
 
     private fun findChatInput(): AccessibilityNodeInfo? {
@@ -295,10 +329,53 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
         return tv
     }
 
+    /**
+     * Renders one suggested reply: a wide tappable chip with the English text
+     * (tap = type it into the chat) and a small 🔊 button that speaks the reply's
+     * Urdu meaning so uncle understands it before sending.
+     */
+    private fun addReply(reply: GeminiClient.Reply) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val p = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            p.topMargin = dp(8)
+            layoutParams = p
+        }
+        val chip = TextView(this).apply {
+            text = reply.english
+            textSize = 16f
+            setTextColor(Color.BLACK)
+            setBackgroundResource(R.drawable.chip_bg)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            setOnClickListener { insertIntoChat(reply.english) }
+        }
+        row.addView(chip)
+        if (reply.urdu.isNotBlank()) {
+            val listen = TextView(this).apply {
+                text = "🔊"
+                textSize = 18f
+                gravity = Gravity.CENTER
+                setBackgroundResource(R.drawable.chip_grey_bg)
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                val p = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT
+                )
+                p.leftMargin = dp(6)
+                layoutParams = p
+                setOnClickListener { speakUrdu(reply.urdu) }
+            }
+            row.addView(listen)
+        }
+        panelContent?.addView(row)
+    }
+
     // ---------------- Flows ----------------
 
     private fun showMessageList(messages: List<String>) {
-        setPanelTitle("پیغام منتخب کریں • Choose a message")
+        setPanelTitle("کسٹمر کا پیغام منتخب کریں • Choose a customer message")
         clearContent()
         for (m in messages) {
             val label = if (m.length > 120) m.take(120) + "…" else m
@@ -360,7 +437,7 @@ class AssistantService : AccessibilityService(), TextToSpeech.OnInitListener {
 
         addNote("جواب منتخب کریں — خود چیٹ میں لکھا جائے گا\nPick a reply — it will be typed into the chat:", Color.parseColor("#1B7A43"), 14f)
         for (r in result.replies) {
-            addChip(r) { insertIntoChat(r) }
+            addReply(r)
         }
         addChip("🎤 اپنا جواب اردو میں بولیں • Speak your own reply in Urdu", grey = true) {
             startListening()
