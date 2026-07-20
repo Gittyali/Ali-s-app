@@ -1,65 +1,59 @@
 package com.ali.englishassistant
 
 /**
- * Screens a message BEFORE it is sent to the AI API.
- * Anything that looks like card/financial data or an OTP/password is
- * BLOCKED — never sent anywhere. Other long numbers are redacted as a
- * fallback. Detection is deliberately safety-first (a few false positives
- * are acceptable; a leaked card number is not).
+ * Scrubs sensitive data from a message BEFORE it is sent to the AI API.
+ * Card numbers, bank accounts, and ID numbers never leave the phone;
+ * OTP/password messages are blocked from being sent entirely.
  */
 object Redactor {
-
-    enum class Reason { NONE, OTP, FINANCIAL }
 
     data class Result(
         val text: String,
         val redacted: Boolean,
-        val blocked: Boolean,
-        val reason: Reason
+        val blocked: Boolean
     )
 
     private val otpContext = Regex(
-        "\\b(otp|one[- ]?time|verification code|security code|login code|passcode|pin code|password)\\b",
+        "\\b(otp|one[- ]?time|verification code|security code|login code|password|passcode|pin code)\\b",
         RegexOption.IGNORE_CASE
     )
     private val shortCode = Regex("\\b\\d{4,8}\\b")
-
-    // Card-number-shaped: 13-19 digits, optionally split by spaces or dashes.
-    private val cardLike = Regex("\\b\\d(?:[ -]?\\d){12,18}\\b")
-    // CVV / CVC context followed by 3-4 digits.
-    private val cvv = Regex("\\b(cvv|cvc|cvv2|cid|security code)\\b\\D{0,12}\\d{3,4}", RegexOption.IGNORE_CASE)
-    // Expiry dates like 09/27 or 09-2027, and "exp/expiry ..." context.
-    private val expiry = Regex("\\b(0[1-9]|1[0-2])[/\\-.](\\d{2}|\\d{4})\\b")
-    private val expiryWord = Regex("\\b(exp|expiry|expiration|valid thru|valid through)\\b", RegexOption.IGNORE_CASE)
-    private val cardWord = Regex("\\b(card ?number|debit card|credit card|card no)\\b", RegexOption.IGNORE_CASE)
+    private val cardLike = Regex("\\b(?:\\d[ -]?){13,19}\\b")
     private val iban = Regex("\\b[A-Z]{2}\\d{2}[A-Z0-9]{10,30}\\b")
     private val cnic = Regex("\\b\\d{5}-\\d{7}-\\d\\b")
     private val longDigits = Regex("\\b\\d{14,}\\b")
 
     fun clean(input: String): Result {
-        // 1. OTP / password → never sent.
+        // OTP / password messages are never sent to the API at all.
         if (otpContext.containsMatchIn(input) && shortCode.containsMatchIn(input)) {
-            return Result(input, redacted = false, blocked = true, reason = Reason.OTP)
+            return Result(input, redacted = false, blocked = true)
         }
 
-        // 2. Card / financial data → never sent. Any card-shaped number counts,
-        //    even without the Luhn checksum, plus CVV, expiry, IBAN, CNIC, and
-        //    card keywords.
-        val looksFinancial =
-            cardLike.containsMatchIn(input) ||
-            cvv.containsMatchIn(input) ||
-            expiry.containsMatchIn(input) ||
-            iban.containsMatchIn(input) ||
-            cnic.containsMatchIn(input) ||
-            (cardWord.containsMatchIn(input) && Regex("\\d{3,}").containsMatchIn(input)) ||
-            (expiryWord.containsMatchIn(input) && Regex("\\d{2,}").containsMatchIn(input))
-        if (looksFinancial) {
-            return Result(input, redacted = false, blocked = true, reason = Reason.FINANCIAL)
-        }
-
-        // 3. Any other very long digit run → redact but still allow translation.
         var redacted = false
-        val t = longDigits.replace(input) { redacted = true; "[نمبر]" }
-        return Result(t, redacted, blocked = false, reason = Reason.NONE)
+        var t = cardLike.replace(input) { m ->
+            if (luhnValid(m.value)) { redacted = true; "[کارڈ نمبر]" } else m.value
+        }
+        t = iban.replace(t) { redacted = true; "[اکاؤنٹ نمبر]" }
+        t = cnic.replace(t) { redacted = true; "[شناختی نمبر]" }
+        t = longDigits.replace(t) { redacted = true; "[نمبر]" }
+        return Result(t, redacted, blocked = false)
+    }
+
+    /** Luhn checksum — true only for real payment-card numbers. */
+    private fun luhnValid(raw: String): Boolean {
+        val digits = raw.filter { it.isDigit() }
+        if (digits.length !in 13..19) return false
+        var sum = 0
+        var alternate = false
+        for (i in digits.length - 1 downTo 0) {
+            var d = digits[i] - '0'
+            if (alternate) {
+                d *= 2
+                if (d > 9) d -= 9
+            }
+            sum += d
+            alternate = !alternate
+        }
+        return sum % 10 == 0
     }
 }

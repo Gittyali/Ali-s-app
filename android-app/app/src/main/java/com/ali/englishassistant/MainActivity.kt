@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.os.Bundle
 import android.provider.Settings
 import android.text.TextUtils
@@ -68,34 +67,10 @@ class MainActivity : Activity() {
             toast("Find \"English Assistant\" and turn it ON • فہرست میں English Assistant تلاش کر کے آن کریں")
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-
-        findViewById<Button>(R.id.toggleBtn).setOnClickListener {
-            val newState = !Prefs.enabled(this)
-            Prefs.setEnabled(this, newState)
-            toast(
-                if (newState) "✅ چالو • Assistant ON — bubble is back"
-                else "⏸ بند • Assistant OFF — bubble hidden"
-            )
-            updateToggleButton()
-        }
-    }
-
-    private fun updateToggleButton() {
-        val btn = findViewById<Button>(R.id.toggleBtn)
-        if (Prefs.enabled(this)) {
-            btn.text = "Assistant is ON • چالو ہے  (tap to hide)"
-            btn.setBackgroundColor(Color.parseColor("#1B7A43"))
-            btn.setTextColor(Color.WHITE)
-        } else {
-            btn.text = "Assistant is OFF • بند ہے  (tap to turn on)"
-            btn.setBackgroundColor(Color.parseColor("#BBBBBB"))
-            btn.setTextColor(Color.BLACK)
-        }
     }
 
     override fun onResume() {
         super.onResume()
-        updateToggleButton()
         refreshStatus()
     }
 

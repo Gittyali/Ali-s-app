@@ -6,12 +6,6 @@ chosen reply straight into the chat box.
 
 ---
 
-## How translation works (important)
-
-- **Reading a message:** the app shows an instant offline translation first, then upgrades it in place to a **natural, human AI explanation** (like ChatGPT) that captures the real meaning and tone — using ONE AI call that also produces the 2 replies, so quota stays low. If the AI is momentarily busy, the quick offline version stays.
-- **AI (Gemini) is used for: the natural explanation + 2 suggested replies (one call), and turning uncle's spoken Urdu into a professional English reply** (it even fixes voice-recognition slips like "rail" → "reel"). Offline translation is only a fast preview / safety net.
-- **The free AI tier allows ~20 requests per minute.** Normal use stays well under it, and the app auto-retries once if it's briefly rate-limited. First run needs internet once to download the ~30MB offline Urdu pack.
-
 ## Part 1 — Get a free Gemini API key (do this once, on any device)
 
 1. Go to **https://aistudio.google.com** and sign in with a Google account.
@@ -53,14 +47,13 @@ These phones kill background apps, which makes the bubble disappear. Do both:
 |---|---|---|
 | 1 | Open any chat (WhatsApp / TikTok / Instagram / Facebook) | کوئی بھی چیٹ کھولیں |
 | 2 | Tap the green 💬 bubble | سبز 💬 بٹن دبائیں |
-| 3 | Tap the customer's message (the list shows customer messages only, newest first) | کسٹمر کا پیغام منتخب کریں |
-| 4 | Read the Urdu — a quick version appears instantly, then upgrades to the natural AI explanation; tap 🔊 to hear it | اردو پڑھیں (پہلے فوری، پھر بہتر AI) یا 🔊 سے سنیں |
-| 5 | Each suggested reply shows its Urdu meaning (read it), a 🔊 to hear it, and ✍️ Type to put it in the chat box | ہر جواب کا اردو مطلب لکھا ہوتا ہے، 🔊 سے سنیں، ✍️ سے چیٹ میں لکھیں |
+| 3 | Tap the customer's message from the list | کسٹمر کا پیغام منتخب کریں |
+| 4 | Read the Urdu meaning, or tap 🔊 to hear it | مطلب اردو میں پڑھیں یا 🔊 سے سنیں |
+| 5 | Tap one of the 2 suggested English replies — it is typed into the chat box automatically | تجویز کردہ جواب پر ٹیپ کریں — خود لکھا جائے گا |
 | 6 | Press **Send** | Send دبائیں |
 
 **To say something in his own words:** tap **🎤 اردو میں بولیں**, speak in Urdu,
-then tap **⏹ Done** when finished (or **🔄 Restart** to start over if he made a
-mistake). The app shows the English translation → tap **✍️ چیٹ میں لکھیں** → press Send.
+the app shows the English translation → tap **✍️ چیٹ میں لکھیں** → press Send.
 
 **To move the bubble:** drag it. **To close the panel:** tap ✕.
 
@@ -72,10 +65,7 @@ mistake). The app shows the English translation → tap **✍️ چیٹ میں �
 |---|---|
 | **Cannot see other apps** | The assistant is locked (at the Android system level) to chat apps only: WhatsApp, WhatsApp Business, TikTok, Instagram, Messenger, Facebook, Telegram, imo. Banking apps, JazzCash/Easypaisa, documents, gallery, settings — invisible to it. Tapping the bubble anywhere else shows a 🔒 "Protected" notice. |
 | **Sensitive numbers never leave the phone** | Before a message is sent to the AI, the app removes payment-card numbers (checksum-verified), bank account/IBAN numbers, CNIC numbers, and any 14+ digit number, replacing them with placeholders. You'll see "🔒 Sensitive numbers were hidden" when this happens. |
-| **Card & financial data is blocked** | If a tapped message contains a card number (any 13–19 digit sequence), CVV/CVC, an expiry date, an IBAN, or a CNIC number, the app refuses to send it and shows a 🔒 notice. It does not even try to translate it. |
 | **OTP / password messages are blocked** | If a tapped message looks like an OTP or password message, the app refuses to send it anywhere and shows a security notice. |
-| **Pause / resume switch** | The bubble can be turned off anytime — long-press the bubble, or use the ON/OFF button at the top of the app. When off, the assistant is not on screen and reads nothing. Turn it back on from the same button. |
-| **Auto-off when screen is off** | When the phone screen turns off, the bubble disappears and the app reads nothing. When the phone wakes/unlocks, the bubble comes back automatically (no re-setup). |
 | **No storage, no history** | Messages are never saved, logged, or stored. Only the single message you tap is sent — over HTTPS, only to Google's Gemini API — used for that one answer. |
 | **Minimal permissions** | The app has only Internet + Microphone. It has NO permission for contacts, files, photos, SMS, or call logs — Android physically prevents it from reading them. |
 | **No cleartext traffic** | All network traffic is HTTPS-only, enforced in the app configuration. |
